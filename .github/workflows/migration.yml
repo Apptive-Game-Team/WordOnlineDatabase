@@ -18,7 +18,7 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}:/flyway/sql \
             redgate/flyway:latest \
-            -url=$ {{ secrets.DB_URL }} \
+            -url=${{ secrets.DB_URL }} \
             -user=${{ secrets.DB_USER }} \
             -password=${{ secrets.DB_PASSWORD }} \
             -baselineOnMigrate=true \
