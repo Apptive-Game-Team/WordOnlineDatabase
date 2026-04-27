@@ -22,5 +22,6 @@ jobs:
             -user=${{ secrets.DB_USER }} \
             -password=${{ secrets.DB_PASSWORD }} \
             -baselineOnMigrate=true \
+            -baselineVersion=1 \ 
             -mixed=true \
             migrate
