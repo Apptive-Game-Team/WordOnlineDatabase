@@ -1,4 +1,4 @@
-name: migrate
+name: migrate dev
 
 on:
   push:
@@ -21,4 +21,6 @@ jobs:
             -url=${{ secrets.DEV_DB_URL }} \
             -user=${{ secrets.DB_USER }} \
             -password=${{ secrets.DB_PASSWORD }} \
+            -baselineOnMigrate=true \
+            -mixed=true \
             migrate

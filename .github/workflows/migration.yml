@@ -1,4 +1,4 @@
-name: migrate
+name: migrate deploy
 
 on:
   push:
@@ -22,4 +22,5 @@ jobs:
             -user=${{ secrets.DB_USER }} \
             -password=${{ secrets.DB_PASSWORD }} \
             -baselineOnMigrate=true \
+            -mixed=true \
             migrate
