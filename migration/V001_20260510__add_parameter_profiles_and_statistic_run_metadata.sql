@@ -43,21 +43,13 @@ create index idx_parameter_profile_values_updated_at
     on public.parameter_profile_values (updated_at);
 
 insert into public.parameter_profiles (id, name, description, is_default)
-values (1, 'Default', 'Seeded from parameter_values for live and simulation baselines', true);
+values (1, 'Default', 'Falls back to canonical parameter_values', true);
 
 select setval(
     pg_get_serial_sequence('public.parameter_profiles', 'id'),
     (select max(id) from public.parameter_profiles),
     true
 );
-
-insert into public.parameter_profile_values (parameter_profile_id, parameter_id, game_object_id, value, updated_at)
-select 1,
-       pv.parameter_id,
-       pv.game_object_id,
-       pv.value,
-       coalesce(pv.updated_at, now())
-from public.parameter_values pv;
 
 alter table public.statistic_games
     add column run_type varchar(32) default 'LIVE' not null,
