@@ -16,40 +16,28 @@ create table public.parameter_profiles
 alter table public.parameter_profiles
     owner to wordonline;
 
-create table public.parameter_profile_values
-(
-    id                   bigserial
-        primary key,
-    parameter_profile_id bigint                             not null
-        constraint fk_parameter_profile_values_profile
-            references public.parameter_profiles
-                on delete cascade,
-    parameter_id         bigint                             not null
-        constraint fk_parameter_profile_values_parameter
-            references public.parameters,
-    game_object_id       bigint                             not null
-        constraint fk_parameter_profile_values_game_object
-            references public.game_objects,
-    value                double precision,
-    updated_at           timestamp default now()           not null,
-    constraint uq_parameter_profile_values_profile_parameter_game_object
-        unique (parameter_profile_id, parameter_id, game_object_id)
-);
-
-alter table public.parameter_profile_values
-    owner to wordonline;
-
-create index idx_parameter_profile_values_updated_at
-    on public.parameter_profile_values (updated_at);
-
 insert into public.parameter_profiles (id, name, description, is_default)
-values (1, 'Default', 'Falls back to canonical parameter_values', true);
+values (1, 'Default', 'Canonical live parameter profile', true);
 
 select setval(
     pg_get_serial_sequence('public.parameter_profiles', 'id'),
     (select max(id) from public.parameter_profiles),
     true
 );
+
+alter table public.parameter_values
+    add column parameter_profile_id bigint default 1 not null;
+
+alter table public.parameter_values
+    add constraint fk_parameter_values_parameter_profile
+        foreign key (parameter_profile_id)
+            references public.parameter_profiles,
+    drop constraint if exists uq_parameter_game_object,
+    add constraint uq_parameter_values_profile_parameter_game_object
+        unique (parameter_profile_id, parameter_id, game_object_id);
+
+create index idx_parameter_values_parameter_profile_id
+    on public.parameter_values (parameter_profile_id);
 
 alter table public.statistic_games
     add column run_type varchar(32) default 'LIVE' not null,
