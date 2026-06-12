@@ -16,12 +16,12 @@ jobs:
       - name: Migrate with flyway
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}:/flyway/sql \
+            -v ${{ github.workspace }}/migration:/flyway/sql \
             redgate/flyway:latest \
             -url=${{ secrets.DB_URL }} \
             -user=${{ secrets.DB_USER }} \
             -password=${{ secrets.DB_PASSWORD }} \
             -baselineOnMigrate=true \
-            -baselineVersion=1 \ 
+            -baselineVersion=1 \
             -mixed=true \
             migrate
