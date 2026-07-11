@@ -16,9 +16,17 @@ CREATE SEQUENCE IF NOT EXISTS bot_user_id_seq
 
 CREATE OR REPLACE FUNCTION allocate_bot_user_id()
 RETURNS BIGINT
-LANGUAGE SQL
+LANGUAGE plpgsql
 AS $$
-    SELECT nextval('bot_user_id_seq');
+DECLARE
+    candidate BIGINT;
+BEGIN
+    LOOP
+        candidate := nextval('bot_user_id_seq');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM users WHERE id = candidate);
+    END LOOP;
+    RETURN candidate;
+END;
 $$;
 
 DO $$

@@ -23,6 +23,7 @@ Legacy persona ID에 대응하는 음수 bot user가 이미 존재해도 V028 mi
 
 - [x] **Step 0: Recon** (CI 오류와 legacy migration 분기 확인)
 - [x] **Step 1: Implementation** (기존 user 재사용, deck 소유자별 재사용/복제)
+- [x] **Step 1.5: Allocator safety** (교차 DB sync로 명시 삽입된 음수 ID를 sequence allocator가 건너뜀)
 - [ ] **Step 2: Tests** (Flyway PostgreSQL 14 workflow 확인)
 - [x] **Step 3: Rollout / Rollback** (V028 transaction rollback 유지)
 
