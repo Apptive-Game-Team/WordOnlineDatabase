@@ -26,6 +26,7 @@ DECLARE
     persona RECORD;
     bot_user_id BIGINT;
     copied_deck_id BIGINT;
+    legacy_deck_owner_id BIGINT;
 BEGIN
     IF to_regclass('public.bot_personas') IS NOT NULL
        AND EXISTS (
@@ -56,28 +57,38 @@ BEGIN
         LOOP
             bot_user_id := -ABS(persona.id);
 
-            IF EXISTS (SELECT 1 FROM users WHERE id = bot_user_id) THEN
-                RAISE EXCEPTION 'Cannot migrate bot persona %, user % already exists', persona.id, bot_user_id;
+            IF NOT EXISTS (SELECT 1 FROM users WHERE id = bot_user_id) THEN
+                INSERT INTO users(id, mmr, status)
+                VALUES (bot_user_id, persona.mmr, 'Online');
             END IF;
 
-            INSERT INTO users(id, mmr, status)
-            VALUES (bot_user_id, persona.mmr, 'Online');
-
             IF persona.deck_id IS NOT NULL THEN
-                INSERT INTO decks(name, user_id)
-                SELECT COALESCE(name, 'Bot Deck'), bot_user_id
-                FROM decks
-                WHERE id = persona.deck_id
-                RETURNING id INTO copied_deck_id;
+                copied_deck_id := NULL;
+                legacy_deck_owner_id := NULL;
 
-                IF copied_deck_id IS NULL THEN
+                SELECT user_id
+                INTO legacy_deck_owner_id
+                FROM decks
+                WHERE id = persona.deck_id;
+
+                IF NOT FOUND THEN
                     RAISE EXCEPTION 'Cannot migrate bot persona %, deck % does not exist', persona.id, persona.deck_id;
                 END IF;
 
-                INSERT INTO deck_cards(deck_id, card_id, count)
-                SELECT copied_deck_id, card_id, count
-                FROM deck_cards
-                WHERE deck_id = persona.deck_id;
+                IF legacy_deck_owner_id = bot_user_id THEN
+                    copied_deck_id := persona.deck_id;
+                ELSE
+                    INSERT INTO decks(name, user_id)
+                    SELECT COALESCE(name, 'Bot Deck'), bot_user_id
+                    FROM decks
+                    WHERE id = persona.deck_id
+                    RETURNING id INTO copied_deck_id;
+
+                    INSERT INTO deck_cards(deck_id, card_id, count)
+                    SELECT copied_deck_id, card_id, count
+                    FROM deck_cards
+                    WHERE deck_id = persona.deck_id;
+                END IF;
 
                 UPDATE users
                 SET selected_deck_id = copied_deck_id
