@@ -28,3 +28,18 @@ used by the game, lobby, and admin servers.
 - `migration/`: Flyway-managed shared game database changes
 - `scripts/manual/`: reviewed SQL that operators run explicitly
 - `archive/`: old SQL moved from application repositories; never executed
+
+## Bot Identity Contract
+
+- `users.id < 0` identifies bots; positive IDs remain reserved for real users.
+- `bot_personas.user_id` is both the persona primary key and a foreign key to
+  `users.id`.
+- `bot_personas` owns display name and AI behavior settings.
+- `users` owns MMR, status, and `selected_deck_id`.
+- Bot decks use the same ownership model as real-user decks:
+  `decks.user_id = bot_personas.user_id`.
+- Applications allocate new bot IDs with `allocate_bot_user_id()` inside the
+  same transaction that creates the user, deck, and persona.
+
+Deploy `V028_20260711__add_bot_user_personas.sql` before application versions
+that use this contract.

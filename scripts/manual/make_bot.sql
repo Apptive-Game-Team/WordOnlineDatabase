@@ -1,19 +1,39 @@
 DO $$
-    DECLARE
-        new_bot_id int := -1;
-        last_user_id int := 313;
-        selected_deck_id int := 334;
-    BEGIN
+DECLARE
+    bot_name CONSTANT VARCHAR(50) := 'Default Bot';
+    bot_user_id BIGINT;
+    bot_deck_id BIGINT;
+BEGIN
+    SELECT user_id INTO bot_user_id
+    FROM bot_personas
+    WHERE name = bot_name
+    ORDER BY user_id
+    LIMIT 1;
 
-        INSERT INTO users(id, selected_deck_id, mmr, status)
-        VALUES (new_bot_id, selected_deck_id, 1000, 'Online');
+    IF bot_user_id IS NOT NULL THEN
+        RAISE NOTICE 'Bot % already exists with user id %', bot_name, bot_user_id;
+        RETURN;
+    END IF;
 
-        UPDATE decks
-        SET user_id = new_bot_id
-        WHERE id = selected_deck_id;
+    bot_user_id := allocate_bot_user_id();
 
-        UPDATE user_cards
-        SET user_id = new_bot_id
-        WHERE user_id = last_user_id;
+    INSERT INTO users(id, mmr, status)
+    VALUES (bot_user_id, 1000, 'Online');
 
-    END $$;
+    INSERT INTO decks(name, user_id)
+    VALUES ('Default Bot Deck', bot_user_id)
+    RETURNING id INTO bot_deck_id;
+
+    UPDATE users
+    SET selected_deck_id = bot_deck_id
+    WHERE id = bot_user_id;
+
+    INSERT INTO bot_personas(
+        user_id, name, tier, thinking_time_ms, reaction_interval_frames,
+        counter_aggression, enabled
+    )
+    VALUES (
+        bot_user_id, bot_name, 'BEGINNER', 250, 8, 0.25, TRUE
+    );
+END
+$$;
