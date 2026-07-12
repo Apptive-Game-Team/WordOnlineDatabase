@@ -31,11 +31,11 @@ WITH concepts(concept_order, concept_name, deck_name, card_names, tier_names) AS
 ),
 tiers(tier_order, tier, thinking_time_ms, reaction_interval_frames, counter_aggression, mmr) AS (
     VALUES
-        (1, 'INTRO'::bot_tier, 1200, 24, 0.10::DOUBLE PRECISION, 600::SMALLINT),
-        (2, 'BEGINNER'::bot_tier, 850, 16, 0.25::DOUBLE PRECISION, 800::SMALLINT),
+        (1, 'INTRO'::bot_tier, 1200, 24, 0.10::DOUBLE PRECISION, 1000::SMALLINT),
+        (2, 'BEGINNER'::bot_tier, 850, 16, 0.25::DOUBLE PRECISION, 1000::SMALLINT),
         (3, 'INTERMEDIATE'::bot_tier, 500, 10, 0.50::DOUBLE PRECISION, 1000::SMALLINT),
-        (4, 'ADVANCED'::bot_tier, 250, 6, 0.75::DOUBLE PRECISION, 1200::SMALLINT),
-        (5, 'ELITE'::bot_tier, 75, 2, 0.95::DOUBLE PRECISION, 1400::SMALLINT)
+        (4, 'ADVANCED'::bot_tier, 250, 6, 0.75::DOUBLE PRECISION, 1000::SMALLINT),
+        (5, 'ELITE'::bot_tier, 75, 2, 0.95::DOUBLE PRECISION, 1000::SMALLINT)
 )
 INSERT INTO concept_bot_seed(
     user_id, concept_name, tier, bot_name, deck_name,
