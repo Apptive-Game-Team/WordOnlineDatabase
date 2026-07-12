@@ -7,18 +7,19 @@
 
 ## Goal
 
-Initialize every newly seeded bot user with MMR 1000.
+Initialize every newly seeded bot user with MMR 1000 and normalize existing bot users to the same value.
 
 ## Acceptance Criteria
 
 - Every concept-bot tier seeds `users.mmr` as 1000.
+- Every existing user referenced by `bot_personas` is updated to MMR 1000.
 - Existing manual and archived bot creation SQL remains at 1000.
 - Legacy persona migration continues preserving existing MMR.
 
 ## Non-goals
 
 - Changing bot tier behavior parameters.
-- Rewriting MMR of existing bot users.
+- Rewriting MMR of non-bot users.
 - Changing legacy migration semantics.
 
 ## Context / Constraints
@@ -28,7 +29,7 @@ Initialize every newly seeded bot user with MMR 1000.
 
 ## Affected Repositories and Contracts
 
-- `database`: concept-bot seed data only.
+- `database`: concept-bot seed data and existing bot-user MMR normalization.
 - No service or API contract changes.
 
 ## Approach
@@ -43,7 +44,7 @@ Initialize every newly seeded bot user with MMR 1000.
 
 - Commands: `rg -n -i --glob '*.sql' '(bot|mmr)' migration scripts archive/lobby`
 - Manual checks: inspect every bot-user `INSERT INTO users` source.
-- Expected results: all newly created bot users receive MMR 1000.
+- Expected results: all newly created and existing bot users receive MMR 1000; non-bot users remain unchanged.
 
 ## Risks & Rollback
 

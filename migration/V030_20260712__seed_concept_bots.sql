@@ -79,6 +79,12 @@ SELECT
     counter_aggression, TRUE
 FROM concept_bot_seed;
 
+UPDATE users bot_user
+SET mmr = 1000
+FROM bot_personas persona
+WHERE bot_user.id = persona.user_id
+  AND bot_user.mmr <> 1000;
+
 INSERT INTO deck_cards(deck_id, card_id, count)
 SELECT bot_deck.id, card.id, 3
 FROM concept_bot_seed seed
@@ -98,6 +104,15 @@ BEGIN
        OR (SELECT COUNT(*) FROM bot_personas WHERE user_id IN (SELECT user_id FROM concept_bot_seed)) <> 45
        OR (SELECT COUNT(*) FROM decks WHERE user_id IN (SELECT user_id FROM concept_bot_seed)) <> 45 THEN
         RAISE EXCEPTION 'Concept bot user, persona, or deck count is incomplete';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM users bot_user
+        JOIN bot_personas persona ON persona.user_id = bot_user.id
+        WHERE bot_user.mmr <> 1000
+    ) THEN
+        RAISE EXCEPTION 'One or more bot users do not have MMR 1000';
     END IF;
 
     SELECT COUNT(*)
