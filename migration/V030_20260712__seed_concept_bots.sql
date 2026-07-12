@@ -31,11 +31,11 @@ WITH concepts(concept_order, concept_name, deck_name, card_names, tier_names) AS
 ),
 tiers(tier_order, tier, thinking_time_ms, reaction_interval_frames, counter_aggression, mmr) AS (
     VALUES
-        (1, 'INTRO'::bot_tier, 1200, 24, 0.10::DOUBLE PRECISION, 1000::SMALLINT),
-        (2, 'BEGINNER'::bot_tier, 850, 16, 0.25::DOUBLE PRECISION, 1000::SMALLINT),
+        (1, 'INTRO'::bot_tier, 1200, 24, 0.10::DOUBLE PRECISION, 600::SMALLINT),
+        (2, 'BEGINNER'::bot_tier, 850, 16, 0.25::DOUBLE PRECISION, 800::SMALLINT),
         (3, 'INTERMEDIATE'::bot_tier, 500, 10, 0.50::DOUBLE PRECISION, 1000::SMALLINT),
-        (4, 'ADVANCED'::bot_tier, 250, 6, 0.75::DOUBLE PRECISION, 1000::SMALLINT),
-        (5, 'ELITE'::bot_tier, 75, 2, 0.95::DOUBLE PRECISION, 1000::SMALLINT)
+        (4, 'ADVANCED'::bot_tier, 250, 6, 0.75::DOUBLE PRECISION, 1200::SMALLINT),
+        (5, 'ELITE'::bot_tier, 75, 2, 0.95::DOUBLE PRECISION, 1400::SMALLINT)
 )
 INSERT INTO concept_bot_seed(
     user_id, concept_name, tier, bot_name, deck_name,
@@ -79,12 +79,6 @@ SELECT
     counter_aggression, TRUE
 FROM concept_bot_seed;
 
-UPDATE users bot_user
-SET mmr = 1000
-FROM bot_personas persona
-WHERE bot_user.id = persona.user_id
-  AND bot_user.mmr <> 1000;
-
 INSERT INTO deck_cards(deck_id, card_id, count)
 SELECT bot_deck.id, card.id, 3
 FROM concept_bot_seed seed
@@ -104,15 +98,6 @@ BEGIN
        OR (SELECT COUNT(*) FROM bot_personas WHERE user_id IN (SELECT user_id FROM concept_bot_seed)) <> 45
        OR (SELECT COUNT(*) FROM decks WHERE user_id IN (SELECT user_id FROM concept_bot_seed)) <> 45 THEN
         RAISE EXCEPTION 'Concept bot user, persona, or deck count is incomplete';
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM users bot_user
-        JOIN bot_personas persona ON persona.user_id = bot_user.id
-        WHERE bot_user.mmr <> 1000
-    ) THEN
-        RAISE EXCEPTION 'One or more bot users do not have MMR 1000';
     END IF;
 
     SELECT COUNT(*)

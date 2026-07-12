@@ -7,11 +7,11 @@
 
 ## Goal
 
-Initialize every newly seeded bot user with MMR 1000 and normalize existing bot users to the same value.
+Normalize every bot user to MMR 1000 after the existing V030 seed runs.
 
 ## Acceptance Criteria
 
-- Every concept-bot tier seeds `users.mmr` as 1000.
+- Every concept bot created by V030 is updated to `users.mmr = 1000` by V031.
 - Every existing user referenced by `bot_personas` is updated to MMR 1000.
 - Existing manual and archived bot creation SQL remains at 1000.
 - Legacy persona migration continues preserving existing MMR.
@@ -25,11 +25,12 @@ Initialize every newly seeded bot user with MMR 1000 and normalize existing bot 
 ## Context / Constraints
 
 - Production SQL is owned by the database module.
-- Applied Flyway migrations must not be edited after deployment; V030 is currently the requested seed source and this change assumes it has not been promoted.
+- V030 is already merged and must remain byte-for-byte unchanged to preserve its Flyway checksum.
+- V031 normalizes every user referenced by `bot_personas`, including bots created by V030.
 
 ## Affected Repositories and Contracts
 
-- `database`: concept-bot seed data and existing bot-user MMR normalization.
+- `database`: follow-up bot-user MMR data migration only.
 - No service or API contract changes.
 
 ## Approach
@@ -44,12 +45,12 @@ Initialize every newly seeded bot user with MMR 1000 and normalize existing bot 
 
 - Commands: `rg -n -i --glob '*.sql' '(bot|mmr)' migration scripts archive/lobby`
 - Manual checks: inspect every bot-user `INSERT INTO users` source.
-- Expected results: all newly created and existing bot users receive MMR 1000; non-bot users remain unchanged.
+- Expected results: all users referenced by `bot_personas` have MMR 1000 after V031; non-bot users remain unchanged.
 
 ## Risks & Rollback
 
-- Risk: editing an already-applied Flyway migration causes checksum mismatch.
-- Rollback: revert this seed-only change before deployment; if V030 is already applied anywhere, use a follow-up migration instead.
+- Risk: resetting bot MMR changes current bot matchmaking placement.
+- Rollback: MMR values before V031 are not recoverable from schema state; restore from backup or apply an explicit compensating migration.
 
 ## Release Order
 
@@ -57,4 +58,4 @@ Initialize every newly seeded bot user with MMR 1000 and normalize existing bot 
 
 ## Open Questions
 
-- Whether V030 has already run in a shared environment; current task assumes no.
+- None.
