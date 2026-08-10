@@ -90,34 +90,17 @@ BEGIN
         JOIN magic_catalog c ON c.id = m.id
         WHERE m.name <> c.name
     ) THEN
-        RAISE NOTICE 'Canonical ids are held by other magics; leaving magic ids untouched.';
+        RAISE EXCEPTION 'Found canonical magic id already used by different magic name';
     END IF;
 END $$;
 
--- Renumbering only applies to a database that already follows the canonical id
--- assignment. A database that assigned its own ids keeps them: nothing outside
--- this table depends on the values -- later migrations resolve magics by name,
--- and the client takes ids from whichever server it is talking to -- while
--- renumbering would delete real rows from user_magics and
--- statistic_game_magics wherever the old and target ids both exist for a user.
---
--- An empty map makes every rewrite below affect nothing.
 CREATE TEMP TABLE magic_id_map AS
 SELECT m.id AS old_id,
        c.id AS target_id,
        m.name
 FROM magics m
-JOIN magic_catalog c ON c.name = m.name
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM magics other
-    JOIN magic_catalog other_catalog ON other_catalog.id = other.id
-    WHERE other.name <> other_catalog.name
-);
+JOIN magic_catalog c ON c.name = m.name;
 
--- Same condition: seeding a catalog row at its canonical id is only correct
--- while ids are canonical. Elsewhere it would add a second row under a name
--- the database already has at a different id.
 INSERT INTO magics(id, name)
 SELECT c.id, c.name
 FROM magic_catalog c
@@ -125,12 +108,6 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM magics m
     WHERE m.id = c.id
-)
-AND NOT EXISTS (
-    SELECT 1
-    FROM magics other
-    JOIN magic_catalog other_catalog ON other_catalog.id = other.id
-    WHERE other.name <> other_catalog.name
 );
 
 DELETE FROM magic_cards old_magic_card
