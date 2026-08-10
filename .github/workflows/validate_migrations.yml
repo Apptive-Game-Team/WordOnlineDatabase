@@ -1,0 +1,67 @@
+name: validate migrations
+
+on:
+  pull_request:
+    paths:
+      - 'migration/**'
+      - 'scripts/ci/**'
+      - '.github/workflows/validate_migrations.yml'
+
+jobs:
+  static:
+    name: static checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The ordering and immutability checks diff against the base branch, so the
+          # shallow clone actions/checkout takes by default is not enough.
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Validate migrations
+        run: scripts/ci/validate-migrations.sh "origin/${{ github.base_ref }}"
+
+  checksums:
+    name: dev database checksums
+    runs-on: ubuntu-latest
+    # A fork pull request cannot read the secrets, and failing the job for that reason
+    # would say nothing about the change.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Catches an edit to a migration the dev database has already run. The static job
+      # sees this too, but only for files published on the base branch; this one compares
+      # against what the database actually applied, which is the record that matters.
+      # Pending migrations are expected on a pull request and are not a failure.
+      - name: Validate with flyway
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/migration:/flyway/sql \
+            redgate/flyway:latest \
+            -url=${{ secrets.DEV_DB_URL }} \
+            -user=${{ secrets.DB_USER }} \
+            -password=${{ secrets.DB_PASSWORD }} \
+            -baselineOnMigrate=true \
+            -baselineVersion=1 \
+            -mixed=true \
+            -ignoreMigrationPatterns='*:pending' \
+            validate
+
+      - name: Show pending migrations
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/migration:/flyway/sql \
+            redgate/flyway:latest \
+            -url=${{ secrets.DEV_DB_URL }} \
+            -user=${{ secrets.DB_USER }} \
+            -password=${{ secrets.DB_PASSWORD }} \
+            -mixed=true \
+            info
