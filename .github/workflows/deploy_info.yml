@@ -1,0 +1,26 @@
+name: inspect deploy
+
+# Read-only. The deploy database is managed by hand and has never been migrated
+# by Flyway, so `migrate` cannot be trusted until we know what Flyway already
+# tracks there. `info` reports that state without writing to the database.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  info:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inspect with flyway
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/migration:/flyway/sql \
+            redgate/flyway:latest \
+            -url=${{ secrets.DB_URL }} \
+            -user=${{ secrets.DB_USER }} \
+            -password=${{ secrets.DB_PASSWORD }} \
+            info

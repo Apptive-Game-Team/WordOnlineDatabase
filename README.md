@@ -23,9 +23,39 @@ used by the game, lobby, and admin servers.
 4. Deploy database migrations before application code that requires them.
 5. Use a forward-fix migration for rollback after a migration has been applied.
 
+## Validation
+
+Rules 1 and 2 are enforced on every pull request that touches `migration/`, by the
+`validate migrations` workflow. Before this existed, a version clash or an edited
+migration only surfaced after the merge to `main`, when the `migrate dev` workflow had
+already run against the dev database.
+
+Run the static checks locally before opening a pull request:
+
+```bash
+scripts/ci/validate-migrations.sh
+```
+
+It reports, without needing a database:
+
+- filenames that Flyway would not parse as migrations, and so would silently never run
+- two files claiming the same version, which makes Flyway refuse to run anything
+- a new migration numbered at or below the highest on `main`, which applies out of order
+  and leaves environments diverged
+- a published migration that was modified or deleted (rule 1)
+
+The workflow additionally runs `flyway validate` against the dev database, which compares
+checksums against what that database actually applied. Pending migrations are expected on
+a pull request and are not treated as a failure.
+
+Neither check applies migrations to a scratch database. `V000` opens with
+`create database` and carries a `pg_catalog` dump, so the chain cannot be replayed from
+empty; see issue #23.
+
 ## Layout
 
 - `migration/`: Flyway-managed shared game database changes
+- `scripts/ci/`: validation run by CI on pull requests
 - `scripts/manual/`: reviewed SQL that operators run explicitly
 - `archive/`: old SQL moved from application repositories; never executed
 
