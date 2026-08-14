@@ -1,22 +1,13 @@
-# Agent Workflow
+# Agent Instructions
 
-Create or identify a GitHub issue before starting tracked work. Use a dedicated branch named `<issue-label>/<issue-number>`, such as `documentation/33`, and open a pull request after verification.
+This repository holds the Flyway migrations for the shared game database. Read
+[`README.md`](README.md) for ownership boundaries, the migration rules, and what CI validates.
 
-Every issue and pull request must set an assignee and a label. Do not leave either blank.
+- **Workflow Doc**: [`.agents/docs/workflow.md`](.agents/docs/workflow.md) — issue first, branch
+  naming, stacked pull requests, and the assignee and label rules for issues and pull requests.
 
-- Assignee: `--assignee @me`.
-- Label: use the same value as the branch prefix. Check available labels with `gh label list`; do not invent a new label when none fit.
-- Do not attach a project.
-- When GitHub CLI authentication appears invalid inside a sandbox but the user says their session is valid, request escalated execution and retry `gh` with the user's session credentials before asking them to re-authenticate.
-
-```bash
-gh issue create --title "..." --body "..." --assignee @me --label documentation
-gh pr create --base <base> --title "..." --body "..." --assignee @me --label documentation
-```
-
-Confirm the metadata after creation:
+Run the static migration checks before opening a pull request:
 
 ```bash
-gh issue view <issue-number> --json assignees,labels
-gh pr view <pr-number> --json assignees,labels
+scripts/ci/validate-migrations.sh
 ```
