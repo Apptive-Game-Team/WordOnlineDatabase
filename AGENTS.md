@@ -2,6 +2,23 @@
 
 Create or identify a GitHub issue before starting tracked work. Use a dedicated branch named `<issue-label>/<issue-number>`, such as `documentation/33`, and open a pull request after verification.
 
+## Stacked Pull Requests
+
+Pull requests must form a single chain, never a fan-out from `main`. Before creating a branch, check for open pull requests:
+
+```bash
+gh pr list --state open --json number,headRefName,baseRefName
+```
+
+- No open pull request: branch from `main` and use `--base main`.
+- One or more open pull requests: find the tip of the chain, which is the open pull request whose `headRefName` is not the `baseRefName` of any other open pull request. Branch from that pull request's head branch and pass it as `--base`.
+
+Only one pull request may target `main` at a time. Every other open pull request targets the branch directly below it in the stack.
+
+After a pull request in the stack merges, rebase the branch above it and confirm its base still points at the correct branch; GitHub retargets it to `main` when the base branch is deleted.
+
+## Metadata
+
 Every issue and pull request must set an assignee and a label. Do not leave either blank.
 
 - Assignee: `--assignee @me`.
