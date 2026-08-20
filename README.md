@@ -52,6 +52,34 @@ Neither check applies migrations to a scratch database. `V000` opens with
 `create database` and carries a `pg_catalog` dump, so the chain cannot be replayed from
 empty; see issue #23.
 
+## Counter Tags
+
+`tags`, `game_object_tags`, and `magic_tags` describe what each object and magic is, and
+`tag_counter_rules` states which of those properties beats which. Only the game server's
+`BotCounterEvaluator` reads them: they are the bot's counter heuristics, not a gameplay
+rule, and no simulation result depends on them.
+
+A missing tag has no runtime symptom. The lookup returns nothing, the evaluator returns the
+neutral score `0.0`, and the object is left out of every bot's counter reasoning without an
+error anywhere. Coverage therefore has to be enforced when the migration is written.
+
+- Every migration that inserts into `game_objects` must also insert into `game_object_tags`.
+- Every migration that inserts into `magics` must populate `magic_tags`, normally by calling
+  `sync_magic_tags_from_game_objects()` at the end of the file. The function derives a
+  magic's tags from the game object sharing its name, so the two cannot disagree.
+- A registration with genuinely nothing to tag declares why in a `-- no-tags: <reason>`
+  comment at the top of the file.
+
+`scripts/ci/validate-migrations.sh` enforces all three.
+
+Elements are deliberately not tagged. `ElementalChart` on the game server owns the element
+multiplier table, real damage is computed from it, and the client's magic book mirrors it.
+A copy here would be a second source of truth for one rule, and only the bot's copy would
+be missed during a balance pass.
+
+Follow [`.agents/skills/register-game-object/SKILL.md`](.agents/skills/register-game-object/SKILL.md)
+when writing a registration migration.
+
 ## Layout
 
 - `migration/`: Flyway-managed shared game database changes
