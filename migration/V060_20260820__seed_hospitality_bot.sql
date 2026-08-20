@@ -24,8 +24,8 @@ $$
 
         hospitality_user_id := allocate_bot_user_id();
 
-        INSERT INTO users(id, mmr, status, is_novice)
-        VALUES (hospitality_user_id, 600, 'Online', FALSE);
+        INSERT INTO users(id, mmr, status, novice_progress)
+        VALUES (hospitality_user_id, 600, 'Online', 1.0);
 
         INSERT INTO decks(name, user_id)
         VALUES ('Warm Welcome', hospitality_user_id)
