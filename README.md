@@ -99,5 +99,19 @@ when writing a registration migration.
 - Applications allocate new bot IDs with `allocate_bot_user_id()` inside the
   same transaction that creates the user, deck, and persona.
 
+- `users.novice_progress` runs from 0.5 to 1.0 and is read two ways: how new the
+  player is, and the share of that player's board the hospitality bot may match.
+  At 1.0 the bot holds nothing back, which is the same thing as having left the
+  tutorial, so there is no separate graduation flag. The game server raises it
+  when a novice wins against the tutorial opponent; nothing lowers it.
+- `bot_personas.hospitality` marks the tutorial opponent. Exactly one persona
+  carries it. It is `enabled` like any other bot, but the lobby must exclude it
+  from the random practice pool and select it only for a player whose
+  `users.is_novice` is still true.
+- `bot_personas.counter_aggression` may be negative. A negative value inverts the
+  bot's counter scoring, so it prefers the play the enemy board answers best.
+  Only the hospitality bot uses this; a negative value on an ordinary bot makes
+  it play against itself.
+
 Deploy `V028_20260711__add_bot_user_personas.sql` before application versions
 that use this contract.
