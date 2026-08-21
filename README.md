@@ -67,10 +67,28 @@ error anywhere. Coverage therefore has to be enforced when the migration is writ
 - Every migration that inserts into `magics` must populate `magic_tags`, normally by calling
   `sync_magic_tags_from_game_objects()` at the end of the file. The function derives a
   magic's tags from the game object sharing its name, so the two cannot disagree.
+- A magic that is not named after the object it creates needs a `magic_game_object_aliases`
+  row before that call reaches it. Swarm magics spawn the singular object, and a handful of
+  magics predate their object's current name; the name join returns nothing for all of them
+  and leaves the magic unscored without an error.
 - A registration with genuinely nothing to tag declares why in a `-- no-tags: <reason>`
   comment at the top of the file.
 
-`scripts/ci/validate-migrations.sh` enforces all three.
+`scripts/ci/validate-migrations.sh` enforces the first, second and fourth of these.
+
+Three kinds of object carry no counter tag on purpose, so an audit that lists them is not
+reporting a gap:
+
+- The six rune prefabs and `wall`. They are cast markers and arena terrain, never something
+  an opponent answers, and they have no `game_objects` row at all.
+- `rock_remnant`. It has `TYPE_Unit` and no `CAT_*`: rubble with no hp and no attack is not
+  worth a bot's area magic, and every `CAT_*` on a target is a reason to spend one on it.
+- `dimension_toad`. `NonAttackingCowardMob` never attacks, so no attacker role fits;
+  `CAT_Large` already exposes it to the crowd control rule.
+
+The legacy `game_objects` rows that duplicate a live object -- `cannon`, `fire_explosion`,
+the `_swarm` names and the rest -- stay untagged as well. They never instantiate; the magics
+named after them reach the live object through `magic_game_object_aliases`.
 
 Elements are deliberately not tagged. `ElementalChart` on the game server owns the element
 multiplier table, real damage is computed from it, and the client's magic book mirrors it.
