@@ -62,6 +62,20 @@ request instead of relying on a runtime check: there is no runtime symptom to no
    It copies each magic's tags from the game object that shares its name, so the two never
    disagree. Write rows by hand only when a magic needs a tag its object does not have, and
    say why in a comment.
+
+   **If the magic is not named after the object it creates, add an alias first.** A swarm
+   magic that spawns the singular object, or any magic whose name differs from its game
+   object, gets nothing from the name join and fails as silently as an untagged object.
+   Twenty magics were in that state until `V064`:
+
+   ```sql
+   INSERT INTO magic_game_object_aliases(magic_name, game_object_name, reason)
+   VALUES ('ember_spirit_swarm', 'ember_spirit', 'EmberSpiritSwarmMagic spawns PrefabType.EmberSpirit');
+   ```
+
+   Write the magic class and the `PrefabType` it constructs into `reason`, so the mapping
+   can be rechecked against the game server without rereading the migration. With the alias
+   in place the magic follows its object's tags from then on.
 7. Close the migration with a `DO $$ ... RAISE EXCEPTION` block that asserts what the file
    was supposed to create, following the pattern in
    `migration/V030_20260712__seed_concept_bots.sql`.
