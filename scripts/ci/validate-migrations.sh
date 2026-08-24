@@ -118,6 +118,42 @@ for file in "${base_migrations[@]}"; do
 done
 [ "$changed" -eq 0 ] && pass "no published migration was modified or deleted"
 
+# ---------------------------------------------------------- tag coverage
+# Bot counter scoring reads game_object_tags and magic_tags. A missing tag is not an error
+# at runtime: BotCounterEvaluator returns the neutral score 0.0, so a unit registered
+# without tags is simply never scored and nothing reports it. That failure is invisible in
+# every environment, which makes the pull request the only place it can be caught.
+#
+# A registration that genuinely has no tags to add declares why, so the exception is
+# written down instead of being indistinguishable from an omission.
+
+tag_gaps=0
+for file in "${migrations[@]}"; do
+    if printf '%s\n' "${base_migrations[@]}" | grep -qx "$file"; then
+        continue
+    fi
+    path="$MIGRATION_DIR/$file"
+    [ -f "$path" ] || continue
+
+    if grep -qi 'no-tags:' "$path"; then
+        pass "$file declares a no-tags exception"
+        continue
+    fi
+
+    if grep -qiE 'insert[[:space:]]+into[[:space:]]+game_objects\b' "$path" \
+        && ! grep -qiE 'insert[[:space:]]+into[[:space:]]+game_object_tags\b' "$path"; then
+        fail "$file registers a game object but adds no game_object_tags - the bot would never score it; add tags or a '-- no-tags: <reason>' comment"
+        tag_gaps=$((tag_gaps + 1))
+    fi
+
+    if grep -qiE 'insert[[:space:]]+into[[:space:]]+magics\b' "$path" \
+        && ! grep -qiE 'insert[[:space:]]+into[[:space:]]+magic_tags\b|sync_magic_tags_from_game_objects' "$path"; then
+        fail "$file registers a magic but does not populate magic_tags - call sync_magic_tags_from_game_objects() at the end, or add a '-- no-tags: <reason>' comment"
+        tag_gaps=$((tag_gaps + 1))
+    fi
+done
+[ "$tag_gaps" -eq 0 ] && pass "new registrations carry counter tags"
+
 # ----------------------------------------------------------------------
 
 if [ "$failures" -gt 0 ]; then
