@@ -66,7 +66,7 @@ request instead of relying on a runtime check: there is no runtime symptom to no
    **If the magic is not named after the object it creates, add an alias first.** A swarm
    magic that spawns the singular object, or any magic whose name differs from its game
    object, gets nothing from the name join and fails as silently as an untagged object.
-   Twenty magics were in that state until `V064`:
+   Twenty magics were in that state until `V065`:
 
    ```sql
    INSERT INTO magic_game_object_aliases(magic_name, game_object_name, reason)

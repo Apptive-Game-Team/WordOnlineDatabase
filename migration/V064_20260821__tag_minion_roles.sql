@@ -76,7 +76,7 @@ WHERE NOT EXISTS (SELECT 1
                     AND existing.tag_id = tt.id);
 
 -- water_slime_swarm and the other swarm magics do not share a name with the object they
--- spawn, so this call does not reach them; V064 adds the alias that does.
+-- spawn, so this call does not reach them; V065 adds the alias that does.
 SELECT sync_magic_tags_from_game_objects();
 
 DO

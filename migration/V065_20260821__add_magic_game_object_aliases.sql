@@ -129,7 +129,7 @@ $$
         FROM magics magic
         WHERE NOT EXISTS (SELECT 1 FROM magic_tags mt WHERE mt.magic_id = magic.id);
 
-        -- V056 could only report this number. With V062, V063 and the aliases above it is
+        -- V056 could only report this number. With V063, V064 and the aliases above it is
         -- zero, so from here it is an assertion: any magic added later without tags fails
         -- the next migration that runs this check instead of disappearing from bot scoring.
         IF untagged_count > 0 THEN
