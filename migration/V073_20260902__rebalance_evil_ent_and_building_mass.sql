@@ -10,12 +10,13 @@ WHERE tag.name = 'CAT_Building'
 ON CONFLICT (parameter_id, game_object_id)
 DO UPDATE SET value = EXCLUDED.value;
 
--- Fire fist needs a stronger hit, while an eight-second pull cooldown stays conservative
--- compared with the original 28.0 damage and 12.0-second cooldown in V069.
+-- Fire fist needs a stronger hit, while a five-second pull charge interval makes pulls
+-- available often enough to build and spend the three-charge stockpile. V069 used 28.0 damage
+-- and a 12.0-second interval.
 WITH evil_ent_values(parameter_name, value) AS (
     VALUES
         ('sub_damage', 40.0),
-        ('sub_attack_interval', 8.0)
+        ('sub_attack_interval', 5.0)
 )
 INSERT INTO parameter_values(game_object_id, parameter_id, value)
 SELECT game_object.id, parameter.id, evil_ent_values.value
