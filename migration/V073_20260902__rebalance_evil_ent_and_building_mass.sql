@@ -1,7 +1,7 @@
--- Buildings must remain outside evil_ent's pull_mass_limit of 5.0. V023 already
--- uses 1000.0 for towerback, so this gives every CAT_Building object one shared mass.
+-- Buildings must remain outside evil_ent's pull_mass_limit of 5.0, so every CAT_Building object
+-- uses the same deliberately heavy mass.
 INSERT INTO parameter_values(game_object_id, parameter_id, value)
-SELECT game_object.id, parameter.id, 1000.0
+SELECT game_object.id, parameter.id, 1000000.0
 FROM game_objects game_object
 JOIN game_object_tags game_object_tag ON game_object_tag.game_object_id = game_object.id
 JOIN tags tag ON tag.id = game_object_tag.tag_id
