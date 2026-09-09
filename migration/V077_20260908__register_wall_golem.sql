@@ -10,21 +10,27 @@
 --
 -- magics.cast_type has been NOT NULL with a CHECK since V047, so the magic row carries 'spawn'.
 --
--- Values. hp, damage and speed are derived from rock_golem with a subquery instead of being
--- written as literals. This repository's V032 backfill and the live database disagree on the hp
--- and damage scale -- V053 multiplied every hp and %damage% row by 10, and later live balance
--- passes moved some of them again -- so a literal written from these files would be off by an
--- order of magnitude. Deriving keeps wall_golem in a fixed ratio to rock_golem whatever the
--- absolute scale turns out to be.
+-- Values. hp, damage and speed are derived with a subquery instead of being written as literals.
+-- This repository's V032 backfill and the live database disagree on the hp and damage scale --
+-- V053 multiplied every hp and %damage% row by 10, and later live balance passes moved some of
+-- them again -- so a literal written from these files would be off by an order of magnitude.
+-- Deriving keeps wall_golem in a fixed ratio to its reference whatever the absolute scale turns
+-- out to be.
 --
---   hp    = rock_golem.hp    x 3.0   The tank premium the issue asks for.
+--   hp    = magma_spirit.hp   x 1.0  The balance pass wants a body the size of magma_spirit's.
 --   damage= rock_golem.damage x 0.8  Slightly under rock_golem: it trades offence for the body.
---   speed = rock_golem.speed x 0.6   A wall that arrives late.
+--   speed = rock_golem.speed  x 0.6  A wall that arrives late.
 --
--- Expected values at the time of writing, from V032 seeds scaled by V053: rock_golem hp 1000,
--- damage 50, speed 0.5, so wall_golem gets hp 3000, damage 40, speed 0.3. That reconstruction is
--- an estimate, not a claim -- magma_spirit's live hp is 2000 where the same arithmetic predicts
--- 2500 -- which is exactly why these three are subqueries.
+-- hp reads magma_spirit rather than rock_golem because that is the body this card is meant to
+-- match, and because V076 sets magma_spirit.hp to a literal 1750 one migration earlier in this
+-- same chain. The subquery therefore lands on exactly 1750 with no scale guesswork left in it.
+-- wall_golem stays the cheaper card at four cards against magma_spirit's five, and pays for the
+-- equal body with no burn aura, no magma fist and 0.6x movement.
+--
+-- Expected damage and speed at the time of writing, from V032 seeds scaled by V053: rock_golem
+-- damage 50 and speed 0.5, so wall_golem gets damage 40 and speed 0.3. That reconstruction is an
+-- estimate, not a claim -- magma_spirit's live hp is 2000 where the same arithmetic predicts
+-- 2500 -- which is exactly why these are subqueries.
 --
 -- attack_interval, mass, radius and quantity are literals. They are in seconds and world units,
 -- which no migration has rescaled: 2.5 is rock_golem's seeded attack_interval, 10.0 is the golem
@@ -36,30 +42,32 @@
 -- No magic_game_object_aliases row is needed: the magic and the object are both named wall_golem,
 -- so the name join in sync_magic_tags_from_game_objects() reaches it directly.
 
--- wall_golem's hp, damage and speed are meaningless without rock_golem's. Fail before writing a
--- NULL rather than after.
+-- wall_golem's hp is meaningless without magma_spirit's, and its damage and speed without
+-- rock_golem's. Fail before writing a NULL rather than after.
 DO
 $$
     DECLARE
-        missing_parameter TEXT;
+        missing_reference TEXT;
     BEGIN
-        SELECT expected.name
-        INTO missing_parameter
-        FROM (VALUES ('hp'), ('damage'), ('speed')) AS expected(name)
+        SELECT expected.source || '.' || expected.name
+        INTO missing_reference
+        FROM (VALUES ('magma_spirit', 'hp'),
+                     ('rock_golem', 'damage'),
+                     ('rock_golem', 'speed')) AS expected(source, name)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values parameter_value
                                    JOIN game_objects game_object
                                         ON game_object.id = parameter_value.game_object_id
                                    JOIN parameters parameter
                                         ON parameter.id = parameter_value.parameter_id
-                          WHERE game_object.name = 'rock_golem'
+                          WHERE game_object.name = expected.source
                             AND parameter.name = expected.name
                             AND parameter_value.value IS NOT NULL)
         LIMIT 1;
 
-        IF missing_parameter IS NOT NULL THEN
-            RAISE EXCEPTION 'rock_golem has no % value; wall_golem derives hp, damage and speed from it',
-                missing_parameter;
+        IF missing_reference IS NOT NULL THEN
+            RAISE EXCEPTION 'wall_golem derives a value from %, which does not exist',
+                missing_reference;
         END IF;
     END
 $$;
@@ -163,9 +171,16 @@ rock_golem_parameters(name, value) AS (
     JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
     WHERE game_object.name = 'rock_golem'
 ),
+magma_spirit_parameters(name, value) AS (
+    SELECT parameter.name, parameter_value.value
+    FROM parameter_values parameter_value
+    JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+    JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+    WHERE game_object.name = 'magma_spirit'
+),
 wall_golem_values(parameter_name, value) AS (
     SELECT 'hp'::TEXT,
-           (SELECT value FROM rock_golem_parameters WHERE name = 'hp') * 3.0
+           (SELECT value FROM magma_spirit_parameters WHERE name = 'hp') * 1.0
     UNION ALL
     SELECT 'damage'::TEXT,
            (SELECT value FROM rock_golem_parameters WHERE name = 'damage') * 0.8
@@ -306,26 +321,27 @@ $$
         END IF;
 
         -- The three derived rows are checked as ratios, which is what the file actually promises.
-        SELECT expected.name
+        SELECT expected.source || '.' || expected.name
         INTO derived_gap
-        FROM (VALUES ('hp', 3.0), ('damage', 0.8), ('speed', 0.6)) AS expected(name, multiplier)
+        FROM (VALUES ('magma_spirit', 'hp', 1.0),
+                     ('rock_golem', 'damage', 0.8),
+                     ('rock_golem', 'speed', 0.6)) AS expected(source, name, multiplier)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values wall_value
                                    JOIN game_objects wall ON wall.id = wall_value.game_object_id
                                    JOIN parameters parameter
                                         ON parameter.id = wall_value.parameter_id
-                                   JOIN game_objects rock ON rock.name = 'rock_golem'
-                                   JOIN parameter_values rock_value
-                                        ON rock_value.game_object_id = rock.id
-                                            AND rock_value.parameter_id = parameter.id
+                                   JOIN game_objects reference ON reference.name = expected.source
+                                   JOIN parameter_values reference_value
+                                        ON reference_value.game_object_id = reference.id
+                                            AND reference_value.parameter_id = parameter.id
                           WHERE wall.name = 'wall_golem'
                             AND parameter.name = expected.name
-                            AND ABS(wall_value.value - rock_value.value * expected.multiplier) < 1e-6)
+                            AND ABS(wall_value.value - reference_value.value * expected.multiplier) < 1e-6)
         LIMIT 1;
 
         IF derived_gap IS NOT NULL THEN
-            RAISE EXCEPTION 'wall_golem % is not the intended multiple of rock_golem %',
-                derived_gap, derived_gap;
+            RAISE EXCEPTION 'wall_golem is not the intended multiple of %', derived_gap;
         END IF;
 
         SELECT COUNT(*)
