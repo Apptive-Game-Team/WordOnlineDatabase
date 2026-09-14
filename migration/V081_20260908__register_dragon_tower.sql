@@ -1,4 +1,6 @@
--- Registers dragon_tower: the Build + Shoot + Fire defensive tower that hits ground and air.
+-- Registers dragon_tower: the Build + Shoot + Fire tower that breathes fire straight forward
+-- every attack_interval, hitting ground and air alike whether or not an enemy stands in front
+-- of it. It does not pick a target.
 --
 -- Recipe. {Build, Fire, Shoot}. DatabaseMagicParser keys magics on the SORTED MULTISET of card
 -- names and its init() is a plain map.put, so a duplicate key silently shadows whichever magic was
@@ -15,35 +17,46 @@
 -- again -- so literals written from these files would be off by an order of magnitude.
 --
 --   hp     = ground_tower.hp     x 1.0   The other lasting Build tower, and the body this matches.
---   damage = electric_tower.damage x 0.6 Under electric_tower, which is what a tower that reaches
---                                        both ground and air pays for the extra coverage.
+--   damage = electric_tower.damage x 0.6 Carried over from when dragon_tower picked a single
+--                                        target; the lane it breathes now has not been rebalanced
+--                                        against that number.
 --
 -- Expected values at the time of writing, from V032 seeds scaled by V053: ground_tower hp 400 and
 -- electric_tower damage 50, so dragon_tower gets hp 400 and damage 30. That reconstruction is an
 -- estimate, not a claim -- magma_spirit's live hp is 2000 where the same arithmetic predicts 2500
 -- -- which is why both are subqueries.
 --
--- attack_interval, attack_range, radius, duration and mass are literals in world units and
--- seconds, which no migration has rescaled. attack_interval 1.5 sits between electric_tower's 1.0
--- and ground_tower's 3.0. attack_range 5.0 is what both towers already reach. radius 1.0 is
--- ground_tower's footprint. duration 20.0 is electric_tower's lifetime. mass 1000000.0 is the
--- building mass V073 gave every CAT_Building object, so evil_ent's pull_mass_limit of 5.0 cannot
--- drag the tower; V073 already ran, so a new building has to carry that value itself.
+-- attack_interval, beam_width, radius, duration and mass are literals in world units and seconds,
+-- which no migration has rescaled. attack_interval 1.5 sits between electric_tower's 1.0 and
+-- ground_tower's 3.0. beam_width 1.0 is measured from the flame's axis outward, the same way
+-- SeaSerpentMob.fireHydroPump reads sea_serpent's beam_width -- it compares
+-- distanceToSegment(...) against beamWidth + targetRadius -- so 1.0 makes a lane two units wide.
+-- radius 1.0 is ground_tower's footprint. duration 20.0 is electric_tower's lifetime.
+-- mass 1000000.0 is the building mass V073 gave every CAT_Building object, so evil_ent's
+-- pull_mass_limit of 5.0 cannot drag the tower; V073 already ran, so a new building has to carry
+-- that value itself.
+--
+-- dragon_tower no longer picks a target. Every attack_interval it fires forward along its own
+-- lane: +X for LeftPlayer and -X for RightPlayer, the same rule WindPushComponent already uses
+-- on the server. The flame runs from the tower to the field edge in that direction -- the field
+-- is X in [0, 18], so the flame ends at X 0 or X 18, at the tower's own Z -- and hits everything
+-- the tower may attack whose body comes within beam_width of that line, ground and air alike.
+-- Nothing stops it short of the edge; there is no reach number to tune.
 --
 -- Indicator contract. The client draws the placement point and the threatened area together, and
--- both values live on the tower's own game object. attack_range is the radius of the threatened
--- area. dragon_tower gets no attack_offset: it threatens a circle around where it stands, so the
--- indicator centres on the placement point, which is what a missing or zero attack_offset means.
+-- both values live on the tower's own game object. The threatened area is a forward lane from the
+-- placement point to the field edge, beam_width wide from the axis. dragon_tower has no
+-- attack_offset parameter: the lane always starts at the placement point.
 --
 -- The name 'range' must not be used here. GameParameterResolver.TryGetMagicParameter looks up
 -- 'range' under the cast type family name 'build' before it falls back to the magic name, so a
 -- range row on the tower would never be read: build.range wins, and build.range is the placement
--- distance and has to stay as it is. No other parameter name has that fallback, so attack_range
+-- distance and has to stay as it is. No other parameter name has that fallback, so beam_width
 -- resolves against the magic name directly. The assertion at the foot fails if a range row ever
 -- appears on dragon_tower.
 --
--- Tags. TYPE_Unit for a body on the field, CAT_Building for what it is, CAT_Ranged for the shots.
--- No CAT_AoE: dragon_tower fires at one target at a time.
+-- Tags. TYPE_Unit for a body on the field, CAT_Building for what it is, CAT_Ranged for the shots,
+-- CAT_AoE because the lane hits every enemy it crosses instead of a single target.
 --
 -- No magic_game_object_aliases row is needed: the magic and the object are both named
 -- dragon_tower.
@@ -146,7 +159,7 @@ required_parameters(name) AS (
         ('hp'),
         ('damage'),
         ('attack_interval'),
-        ('attack_range'),
+        ('beam_width'),
         ('radius'),
         ('duration'),
         ('mass')
@@ -191,7 +204,7 @@ dragon_tower_values(parameter_name, value) AS (
     UNION ALL
     SELECT 'attack_interval'::TEXT, 1.5::DOUBLE PRECISION
     UNION ALL
-    SELECT 'attack_range'::TEXT, 5.0::DOUBLE PRECISION
+    SELECT 'beam_width'::TEXT, 1.0::DOUBLE PRECISION
     UNION ALL
     SELECT 'radius'::TEXT, 1.0::DOUBLE PRECISION
     UNION ALL
@@ -211,7 +224,8 @@ WITH required_tags(name) AS (
     VALUES
         ('TYPE_Unit'),
         ('CAT_Building'),
-        ('CAT_Ranged')
+        ('CAT_Ranged'),
+        ('CAT_AoE')
 ),
 inserted_tags AS (
     INSERT INTO tags(name)
@@ -307,7 +321,7 @@ $$
 
         SELECT expected.name
         INTO missing_parameter
-        FROM (VALUES ('attack_interval', 1.5), ('attack_range', 5.0), ('radius', 1.0),
+        FROM (VALUES ('attack_interval', 1.5), ('beam_width', 1.0), ('radius', 1.0),
                      ('duration', 20.0), ('mass', 1000000.0)) AS expected(name, value)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values parameter_value
@@ -327,7 +341,7 @@ $$
 
         -- GameParameterResolver.TryGetMagicParameter resolves 'range' against the cast type family
         -- 'build' first, so a range row here would be read as the placement distance instead of
-        -- the tower's reach, and the indicator would draw the wrong circle.
+        -- the lane's beam_width, and the indicator would draw the wrong lane.
         IF EXISTS (SELECT 1
                    FROM parameter_values parameter_value
                             JOIN game_objects game_object
@@ -336,7 +350,7 @@ $$
                                  ON parameter.id = parameter_value.parameter_id
                    WHERE game_object.name = 'dragon_tower'
                      AND parameter.name = 'range') THEN
-            RAISE EXCEPTION 'dragon_tower carries a range parameter; build.range shadows it, use attack_range';
+            RAISE EXCEPTION 'dragon_tower carries a range parameter; build.range shadows it, use beam_width';
         END IF;
 
         SELECT parameter_value.value
@@ -389,10 +403,10 @@ $$
                  JOIN game_objects game_object ON game_object.id = game_object_tag.game_object_id
                  JOIN tags tag ON tag.id = game_object_tag.tag_id
         WHERE game_object.name = 'dragon_tower'
-          AND tag.name IN ('TYPE_Unit', 'CAT_Building', 'CAT_Ranged');
+          AND tag.name IN ('TYPE_Unit', 'CAT_Building', 'CAT_Ranged', 'CAT_AoE');
 
-        IF tag_count <> 3 THEN
-            RAISE EXCEPTION 'dragon_tower carries % of its 3 counter tags', tag_count;
+        IF tag_count <> 4 THEN
+            RAISE EXCEPTION 'dragon_tower carries % of its 4 counter tags', tag_count;
         END IF;
 
         SELECT COUNT(*)
@@ -401,7 +415,7 @@ $$
                  JOIN magics magic ON magic.id = magic_tag.magic_id
         WHERE magic.name = 'dragon_tower';
 
-        IF magic_tag_count < 3 THEN
+        IF magic_tag_count < 4 THEN
             RAISE EXCEPTION 'magic dragon_tower carries only % tags; the name sync did not reach it',
                 magic_tag_count;
         END IF;
