@@ -22,9 +22,9 @@
 -- attack_interval it spawns one dragon_flame at itself and sends it straight forward: +X for
 -- LeftPlayer and -X for RightPlayer, the same rule WindPushComponent already uses on the server.
 -- dragon_flame explodes on the first enemy it touches, dealing its damage in a radius around the
--- impact point. If it touches nothing it keeps flying to the field edge and disappears there.
--- Nothing stops it short of that, and there is no reach number to tune, which is why the tower
--- carries no separate range for the shot -- see the indicator contract below.
+-- impact point. If it touches nothing, it flies attack_range world units and disappears there,
+-- whether or not the field edge is nearer -- see the indicator contract below for what sets that
+-- number.
 --
 -- Values. dragon_tower.hp and dragon_flame's damage, speed and radius are all derived with
 -- subqueries rather than written as literals. This repository's V032 backfill and the live
@@ -41,18 +41,23 @@
 --                                                      picked a single target; the projectile has
 --                                                      not been rebalanced against that number.
 --   dragon_flame.speed  = fire_shot.speed      x 1.0   fire_shot is the nearest existing projectile.
---   dragon_flame.radius = fire_shot.radius     x 1.0   Same reasoning; also the value dragon_tower's
---                                                      attack_range indicator has to match, below.
+--   dragon_flame.radius = fire_shot.radius     x 1.0   The projectile's own size; nothing else
+--                                                      depends on it now.
 --
 -- Expected values at the time of writing, from V032 seeds scaled by V053: ground_tower hp 400,
 -- electric_tower damage 50, fire_shot speed 8 and fire_shot radius 0.5 (V053 does not touch speed
--- or radius). So dragon_tower gets hp 400 and attack_range 0.5, and dragon_flame gets damage 30,
--- speed 8 and radius 0.5. That reconstruction is an estimate, not a claim -- magma_spirit's live hp
--- is 2000 where the same arithmetic predicts 2500 -- which is why all four are subqueries.
+-- or radius). So dragon_tower gets hp 400, and dragon_flame gets damage 30, speed 8 and radius 0.5.
+-- That reconstruction is an estimate, not a claim -- magma_spirit's live hp is 2000 where the same
+-- arithmetic predicts 2500 -- which is why all four are subqueries.
 --
--- attack_interval, radius, duration and mass on dragon_tower are literals in world units and
--- seconds, which no migration has rescaled. attack_interval 1.5 sits between electric_tower's 1.0
--- and ground_tower's 3.0, unchanged from when dragon_tower picked a target. radius 1.0 is
+-- attack_interval, attack_range, radius, duration and mass on dragon_tower are literals in world
+-- units and seconds, which no migration has rescaled. attack_interval 1.5 sits between
+-- electric_tower's 1.0 and ground_tower's 3.0, unchanged from when dragon_tower picked a target.
+-- attack_range 8.0 is how far dragon_flame flies before it disappears, and it is no longer related
+-- to any radius. Chosen against its ranged siblings: ground_tower and electric_tower both reach
+-- 5.0, sea_serpent's beam reaches 7.0, and the field is 18 world units wide, so a half is 9 --
+-- 8.0 sits inside that half, past every existing tower's reach, without covering the whole field.
+-- It is a deliberate literal in world units, like attack_interval, not a derivation. radius 1.0 is
 -- ground_tower's footprint, also unchanged. duration 20.0 is electric_tower's lifetime, unchanged.
 -- mass 1000000.0 is the building mass V073 gave every CAT_Building object, so evil_ent's
 -- pull_mass_limit of 5.0 cannot drag the tower; V073 already ran, so a new building has to carry
@@ -60,22 +65,17 @@
 --
 -- Indicator contract. The client draws the placement point and the threatened area together, and
 -- both values live on the tower's own game object. The threatened area is the row directly ahead of
--- the tower, from the placement point to the field edge. dragon_tower.attack_range is indicator
--- only -- the server never reads it -- and carries dragon_flame's own radius so the client can draw
--- a circle the size of the projectile that will travel that row.
---
--- dragon_tower.attack_range and dragon_flame.radius are the same number by contract: the first is
--- what the indicator draws, the second is what actually explodes. Changing one alone leaves the
--- client drawing a circle that does not match the blast, with no error anywhere, so the assertion
--- at the foot compares the two rows in the database rather than trusting that both subqueries above
--- read the same thing. This is the same arrangement V082 uses for firework_tower.attack_range
--- versus firework_shell.radius.
+-- the tower, from the placement point out to attack_range world units. dragon_tower.attack_range is
+-- the real reach now -- the server reads it to decide how far each dragon_flame it launches flies
+-- before it disappears -- and the client indicator draws that same number, not a copy of
+-- dragon_flame.radius or of anything else.
 --
 -- The name 'range' must not be used here. GameParameterResolver.TryGetMagicParameter resolves
 -- 'range' against the cast type family 'build' first, so a range row on the tower would never be
 -- read: build.range wins, and build.range is the placement distance and has to stay as it is. No
 -- other parameter name has that fallback, so attack_range resolves against the magic name directly.
--- The assertion at the foot fails if a range row ever appears on dragon_tower.
+-- The assertion at the foot fails if a range or beam_width row ever appears on either dragon_tower
+-- or dragon_flame.
 --
 -- Tags. dragon_tower gets TYPE_Unit, CAT_Building and CAT_Ranged for what it is and how it attacks,
 -- and CAT_AoE because its impact splash is the same kind ground_tower already carries the tag for
@@ -212,8 +212,7 @@ dragon_values(game_object_name, parameter_name, value) AS (
     UNION ALL
     SELECT 'dragon_tower'::TEXT, 'attack_interval'::TEXT, 1.5::DOUBLE PRECISION
     UNION ALL
-    SELECT 'dragon_tower'::TEXT, 'attack_range'::TEXT,
-           (SELECT value FROM fire_shot_parameters WHERE name = 'radius') * 1.0
+    SELECT 'dragon_tower'::TEXT, 'attack_range'::TEXT, 8.0::DOUBLE PRECISION
     UNION ALL
     SELECT 'dragon_tower'::TEXT, 'radius'::TEXT, 1.0::DOUBLE PRECISION
     UNION ALL
@@ -292,7 +291,6 @@ $$
         fire_shot_speed    DOUBLE PRECISION;
         flame_radius       DOUBLE PRECISION;
         fire_shot_radius   DOUBLE PRECISION;
-        indicator_range    DOUBLE PRECISION;
         tag_count          INTEGER;
         magic_tag_count    INTEGER;
     BEGIN
@@ -350,6 +348,7 @@ $$
         SELECT expected.game_object_name || '.' || expected.parameter_name
         INTO missing_parameter
         FROM (VALUES ('dragon_tower', 'attack_interval', 1.5),
+                     ('dragon_tower', 'attack_range', 8.0),
                      ('dragon_tower', 'radius', 1.0),
                      ('dragon_tower', 'duration', 20.0),
                      ('dragon_tower', 'mass', 1000000.0))
@@ -470,22 +469,6 @@ $$
             OR ABS(flame_radius - fire_shot_radius) >= 1e-6 THEN
             RAISE EXCEPTION 'dragon_flame radius is % but fire_shot radius is %; they were meant to match',
                 COALESCE(flame_radius::TEXT, '(none)'), COALESCE(fire_shot_radius::TEXT, '(none)');
-        END IF;
-
-        -- The indicator circle on the tower and the projectile's own blast radius are two rows
-        -- that must hold one number.
-        SELECT parameter_value.value
-        INTO indicator_range
-        FROM parameter_values parameter_value
-                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
-                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
-        WHERE game_object.name = 'dragon_tower'
-          AND parameter.name = 'attack_range';
-
-        IF indicator_range IS NULL OR flame_radius IS NULL
-            OR indicator_range <> flame_radius THEN
-            RAISE EXCEPTION 'dragon_tower attack_range is % but dragon_flame radius is %; the client indicator would not match the projectile',
-                COALESCE(indicator_range::TEXT, '(none)'), COALESCE(flame_radius::TEXT, '(none)');
         END IF;
 
         SELECT COUNT(*)
