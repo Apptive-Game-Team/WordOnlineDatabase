@@ -27,15 +27,22 @@
 --
 -- radius, attack_interval, quantity, duration and mass are literals in world units and seconds,
 -- which no migration has rescaled. radius 5.0 is how far a field can land from the generator,
--- attack_interval 2.0 is the gap between rings, quantity 6 is the fields per ring, and duration
--- 15.0 is vine_colony's lifetime as set by V074. mass 1000000.0 is the building mass V073 gave
--- every CAT_Building object, so evil_ent's pull_mass_limit of 5.0 cannot drag the generator; V073
--- already ran, so a new building has to carry that value itself.
+-- attack_interval 1.0 is the gap between spawns, quantity 6 is the fields seeded per ring, and
+-- duration 25.0 is how long the generator itself lives. mass 1000000.0 is the building mass V073
+-- gave every CAT_Building object, so evil_ent's pull_mass_limit of 5.0 cannot drag the generator;
+-- V073 already ran, so a new building has to carry that value itself. duration 25.0 no longer
+-- matches vine_colony's 15.0 from V074; it is deliberately longer so the fill-then-regrow cycle
+-- below fits inside one generator lifetime.
 --
--- Field load. A ring of 6 goes out every 2 seconds for 15 seconds, so 8 rings and 48 leaf_field
--- spawns over the generator's whole life. leaf_field's duration is 3 seconds, so at most two
--- rings overlap and the peak is 12 concurrent fields, not 48. The assertion at the foot recomputes
--- that peak from the live leaf_field duration and refuses anything above 24.
+-- Field load. GrassSpread fills 18 fixed slots (ceil(radius 5.0 / 1.75) times quantity 6), one
+-- leaf field per slot, innermost ring first. One field spawns every attack_interval 1.0 second,
+-- so all 18 slots are filled 18 seconds in; the remaining 7 seconds of duration 25.0 go to
+-- refilling slots that were burned away. Fields no longer expire on their own while the generator
+-- stands -- GrassSpread freezes each field's TimedSelfDestroyer every tick -- so the peak
+-- concurrent count is the full 18, not something leaf_field's own duration bounds. When the
+-- generator dies the freezing stops and each field wilts about 3 seconds later, once its own
+-- leaf_field.duration (3 seconds) resumes. The assertion at the foot recomputes the slot count
+-- from grass_generator's own radius and quantity and refuses anything above 24.
 --
 -- Tags. TYPE_Unit for a body on the field, CAT_Building for what it is, CAT_AoE for the ring of
 -- fields it lays down. No CAT_Ranged: the generator has no targeted attack, it seeds ground.
@@ -166,11 +173,11 @@ grass_generator_values(parameter_name, value) AS (
     UNION ALL
     SELECT 'radius'::TEXT, 5.0::DOUBLE PRECISION
     UNION ALL
-    SELECT 'attack_interval'::TEXT, 2.0::DOUBLE PRECISION
+    SELECT 'attack_interval'::TEXT, 1.0::DOUBLE PRECISION
     UNION ALL
     SELECT 'quantity'::TEXT, 6.0::DOUBLE PRECISION
     UNION ALL
-    SELECT 'duration'::TEXT, 15.0::DOUBLE PRECISION
+    SELECT 'duration'::TEXT, 25.0::DOUBLE PRECISION
     UNION ALL
     SELECT 'mass'::TEXT, 1000000.0::DOUBLE PRECISION
 )
@@ -234,8 +241,9 @@ $$
         missing_parameter    TEXT;
         generator_hp         DOUBLE PRECISION;
         colony_hp            DOUBLE PRECISION;
-        leaf_field_duration  DOUBLE PRECISION;
-        peak_field_count     DOUBLE PRECISION;
+        generator_radius     DOUBLE PRECISION;
+        generator_quantity   DOUBLE PRECISION;
+        slot_count           DOUBLE PRECISION;
         tag_count            INTEGER;
         magic_tag_count      INTEGER;
     BEGIN
@@ -282,8 +290,8 @@ $$
 
         SELECT expected.name
         INTO missing_parameter
-        FROM (VALUES ('radius', 5.0), ('attack_interval', 2.0), ('quantity', 6.0),
-                     ('duration', 15.0), ('mass', 1000000.0)) AS expected(name, value)
+        FROM (VALUES ('radius', 5.0), ('attack_interval', 1.0), ('quantity', 6.0),
+                     ('duration', 25.0), ('mass', 1000000.0)) AS expected(name, value)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values parameter_value
                                    JOIN game_objects game_object
@@ -321,23 +329,35 @@ $$
                 COALESCE(generator_hp::TEXT, '(none)'), COALESCE(colony_hp::TEXT, '(none)');
         END IF;
 
-        -- Concurrent leaf fields are quantity x (leaf_field duration / attack_interval). A live
-        -- leaf_field duration far above the 3 seconds seeded by V032 would turn one generator
-        -- into a field carpet, so the peak is recomputed here rather than assumed.
+        -- Concurrent leaf fields are bounded by the slot table, not by leaf_field's own duration:
+        -- GrassSpread freezes each planted field's TimedSelfDestroyer every tick the generator
+        -- stands, so fields stop expiring on their own. The slot count is
+        -- ceil(radius / RING_SPACING) x quantity, where 1.75 below is GrassSpread.RING_SPACING
+        -- in the game server -- keep the two in sync if that constant ever moves. A generator
+        -- with too high a radius or quantity would carpet the field with leaf fields, so the
+        -- slot count is recomputed here rather than assumed.
         SELECT parameter_value.value
-        INTO leaf_field_duration
+        INTO generator_radius
         FROM parameter_values parameter_value
                  JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
                  JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
-        WHERE game_object.name = 'leaf_field'
-          AND parameter.name = 'duration';
+        WHERE game_object.name = 'grass_generator'
+          AND parameter.name = 'radius';
 
-        IF leaf_field_duration IS NOT NULL THEN
-            peak_field_count := 6.0 * CEIL(leaf_field_duration / 2.0);
+        SELECT parameter_value.value
+        INTO generator_quantity
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'grass_generator'
+          AND parameter.name = 'quantity';
 
-            IF peak_field_count > 24 THEN
-                RAISE EXCEPTION 'grass_generator would hold % leaf fields at once (leaf_field duration %); raise attack_interval or lower quantity',
-                    peak_field_count, leaf_field_duration;
+        IF generator_radius IS NOT NULL AND generator_quantity IS NOT NULL THEN
+            slot_count := CEIL(generator_radius / 1.75) * generator_quantity;
+
+            IF slot_count > 24 THEN
+                RAISE EXCEPTION 'grass_generator would hold % leaf fields at once (radius %, quantity %); lower radius or quantity',
+                    slot_count, generator_radius, generator_quantity;
             END IF;
         END IF;
 
