@@ -1,5 +1,13 @@
 -- Registers the September composite-magic set and replaces shock_overload's recipe.
 -- The runtime implementations live on the main lineage and use the existing cast_type contract.
+--
+-- never-applied: the first version of this file gave titan_remnant Build + Explode + Rock, which
+-- the magic tower has held since V032. The collision assertion below stopped the migration, Flyway
+-- rolled the transaction back, and no flyway_schema_history row was written on any database, so
+-- there is nothing for a forward-fix migration to correct. Every database is still at V088 and
+-- stays there until this file itself succeeds. titan_remnant now takes Build + Rock + Rock, which
+-- no magic uses; TitanRemnantPrefabInitializer sets ElementType.ROCK and nothing else, so the
+-- Explode card was not carrying an element the runtime reads.
 
 -- --------------------------------------------------------------------------- catalogue
 INSERT INTO magics(name, access_type, cast_type)
@@ -32,8 +40,7 @@ WHERE magic_id IN (SELECT id
 
 WITH recipes(magic_name, card_name, required_count) AS (
     VALUES ('titan_remnant', 'Build', 1),
-           ('titan_remnant', 'Explode', 1),
-           ('titan_remnant', 'Rock', 1),
+           ('titan_remnant', 'Rock', 2),
            ('spirit_bomb', 'Shoot', 2),
            ('spirit_bomb', 'Lightning', 1),
            ('spirit_bomb', 'Nature', 1),
@@ -207,7 +214,7 @@ BEGIN
     END IF;
 
     WITH expected(magic_name, recipe) AS (
-        VALUES ('titan_remnant', ARRAY['Build', 'Explode', 'Rock']::TEXT[]),
+        VALUES ('titan_remnant', ARRAY['Build', 'Rock', 'Rock']::TEXT[]),
                ('spirit_bomb', ARRAY['Lightning', 'Nature', 'Shoot', 'Shoot']::TEXT[]),
                ('tidal_warhead', ARRAY['Explode', 'Shoot', 'Water']::TEXT[]),
                ('boulder_strike', ARRAY['Rock', 'Shoot', 'Wind']::TEXT[]),
