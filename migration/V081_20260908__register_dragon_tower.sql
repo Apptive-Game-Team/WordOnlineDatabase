@@ -1,6 +1,8 @@
--- Registers dragon_tower: the Build + Shoot + Fire tower that breathes fire straight forward
--- every attack_interval, hitting ground and air alike whether or not an enemy stands in front
--- of it. It does not pick a target.
+-- Registers dragon_tower and dragon_flame: dragon_tower is the Build + Shoot + Fire tower that
+-- launches dragon_flame straight forward every attack_interval, whether or not an enemy stands in
+-- front of it. It does not pick a target. dragon_flame is the projectile, a separate game object
+-- exactly the way firework_tower and firework_shell are a pair in
+-- V082_20260908__register_firework_tower.sql.
 --
 -- Recipe. {Build, Fire, Shoot}. DatabaseMagicParser keys magics on the SORTED MULTISET of card
 -- names and its init() is a plain map.put, so a duplicate key silently shadows whichever magic was
@@ -11,57 +13,76 @@
 --
 -- magics.cast_type has been NOT NULL with a CHECK since V047, so the magic row carries 'build'.
 --
--- Values. hp and damage are derived with subqueries rather than written as literals. This
--- repository's V032 backfill and the live database disagree on the hp and damage scale -- V053
--- multiplied every hp and %damage% row by 10 and later live balance passes moved some of them
--- again -- so literals written from these files would be off by an order of magnitude.
+-- Two objects. The magic is dragon_tower and the projectile it fires is dragon_flame, so only
+-- dragon_tower is reached by the name join in sync_magic_tags_from_game_objects(). dragon_flame is
+-- not a magic, so it needs no magic_game_object_aliases row; it is tagged directly like any other
+-- field object.
 --
---   hp     = ground_tower.hp     x 1.0   The other lasting Build tower, and the body this matches.
---   damage = electric_tower.damage x 0.6 Carried over from when dragon_tower picked a single
---                                        target; the lane it breathes now has not been rebalanced
---                                        against that number.
+-- Behavior. dragon_tower no longer picks a target or breathes an instantaneous beam. Every
+-- attack_interval it spawns one dragon_flame at itself and sends it straight forward: +X for
+-- LeftPlayer and -X for RightPlayer, the same rule WindPushComponent already uses on the server.
+-- dragon_flame explodes on the first enemy it touches, dealing its damage in a radius around the
+-- impact point. If it touches nothing it keeps flying to the field edge and disappears there.
+-- Nothing stops it short of that, and there is no reach number to tune, which is why the tower
+-- carries no separate range for the shot -- see the indicator contract below.
 --
--- Expected values at the time of writing, from V032 seeds scaled by V053: ground_tower hp 400 and
--- electric_tower damage 50, so dragon_tower gets hp 400 and damage 30. That reconstruction is an
--- estimate, not a claim -- magma_spirit's live hp is 2000 where the same arithmetic predicts 2500
--- -- which is why both are subqueries.
+-- Values. dragon_tower.hp and dragon_flame's damage, speed and radius are all derived with
+-- subqueries rather than written as literals. This repository's V032 backfill and the live
+-- database disagree on the hp and damage scale -- V053 multiplied every hp and %damage% row by 10
+-- and later live balance passes moved some of them again -- so hp and damage literals written from
+-- these files would be off by an order of magnitude. dragon_flame is the same kind of object as
+-- fire_shot, so its speed and radius are read from fire_shot rather than copied as literals, on the
+-- chance a later balance pass moved those the same way it moved hp and damage; V053 itself only
+-- touched hp and %damage% rows, so speed and radius were not necessarily carried along with it.
 --
--- attack_interval, beam_width, radius, duration and mass are literals in world units and seconds,
--- which no migration has rescaled. attack_interval 1.5 sits between electric_tower's 1.0 and
--- ground_tower's 3.0. beam_width 1.0 is measured from the flame's axis outward, the same way
--- SeaSerpentMob.fireHydroPump reads sea_serpent's beam_width -- it compares
--- distanceToSegment(...) against beamWidth + targetRadius -- so 1.0 makes a lane two units wide.
--- radius 1.0 is ground_tower's footprint. duration 20.0 is electric_tower's lifetime.
+--   dragon_tower.hp     = ground_tower.hp     x 1.0   The other lasting Build tower, and the body
+--                                                      this matches.
+--   dragon_flame.damage = electric_tower.damage x 0.6 Carried over from when dragon_tower's fire
+--                                                      picked a single target; the projectile has
+--                                                      not been rebalanced against that number.
+--   dragon_flame.speed  = fire_shot.speed      x 1.0   fire_shot is the nearest existing projectile.
+--   dragon_flame.radius = fire_shot.radius     x 1.0   Same reasoning; also the value dragon_tower's
+--                                                      attack_range indicator has to match, below.
+--
+-- Expected values at the time of writing, from V032 seeds scaled by V053: ground_tower hp 400,
+-- electric_tower damage 50, fire_shot speed 8 and fire_shot radius 0.5 (V053 does not touch speed
+-- or radius). So dragon_tower gets hp 400 and attack_range 0.5, and dragon_flame gets damage 30,
+-- speed 8 and radius 0.5. That reconstruction is an estimate, not a claim -- magma_spirit's live hp
+-- is 2000 where the same arithmetic predicts 2500 -- which is why all four are subqueries.
+--
+-- attack_interval, radius, duration and mass on dragon_tower are literals in world units and
+-- seconds, which no migration has rescaled. attack_interval 1.5 sits between electric_tower's 1.0
+-- and ground_tower's 3.0, unchanged from when dragon_tower picked a target. radius 1.0 is
+-- ground_tower's footprint, also unchanged. duration 20.0 is electric_tower's lifetime, unchanged.
 -- mass 1000000.0 is the building mass V073 gave every CAT_Building object, so evil_ent's
 -- pull_mass_limit of 5.0 cannot drag the tower; V073 already ran, so a new building has to carry
 -- that value itself.
 --
--- dragon_tower no longer picks a target. Every attack_interval it fires forward along its own
--- lane: +X for LeftPlayer and -X for RightPlayer, the same rule WindPushComponent already uses
--- on the server. The flame runs from the tower to the field edge in that direction -- the field
--- is X in [0, 18], so the flame ends at X 0 or X 18, at the tower's own Z -- and hits everything
--- the tower may attack whose body comes within beam_width of that line, ground and air alike.
--- Nothing stops it short of the edge; there is no reach number to tune.
---
 -- Indicator contract. The client draws the placement point and the threatened area together, and
--- both values live on the tower's own game object. The threatened area is a forward lane from the
--- placement point to the field edge, beam_width wide from the axis. dragon_tower has no
--- attack_offset parameter: the lane always starts at the placement point.
+-- both values live on the tower's own game object. The threatened area is the row directly ahead of
+-- the tower, from the placement point to the field edge. dragon_tower.attack_range is indicator
+-- only -- the server never reads it -- and carries dragon_flame's own radius so the client can draw
+-- a circle the size of the projectile that will travel that row.
 --
--- The name 'range' must not be used here. GameParameterResolver.TryGetMagicParameter looks up
--- 'range' under the cast type family name 'build' before it falls back to the magic name, so a
--- range row on the tower would never be read: build.range wins, and build.range is the placement
--- distance and has to stay as it is. No other parameter name has that fallback, so beam_width
--- resolves against the magic name directly. The assertion at the foot fails if a range row ever
--- appears on dragon_tower.
+-- dragon_tower.attack_range and dragon_flame.radius are the same number by contract: the first is
+-- what the indicator draws, the second is what actually explodes. Changing one alone leaves the
+-- client drawing a circle that does not match the blast, with no error anywhere, so the assertion
+-- at the foot compares the two rows in the database rather than trusting that both subqueries above
+-- read the same thing. This is the same arrangement V082 uses for firework_tower.attack_range
+-- versus firework_shell.radius.
 --
--- Tags. TYPE_Unit for a body on the field, CAT_Building for what it is, CAT_Ranged for the shots,
--- CAT_AoE because the lane hits every enemy it crosses instead of a single target.
+-- The name 'range' must not be used here. GameParameterResolver.TryGetMagicParameter resolves
+-- 'range' against the cast type family 'build' first, so a range row on the tower would never be
+-- read: build.range wins, and build.range is the placement distance and has to stay as it is. No
+-- other parameter name has that fallback, so attack_range resolves against the magic name directly.
+-- The assertion at the foot fails if a range row ever appears on dragon_tower.
 --
--- No magic_game_object_aliases row is needed: the magic and the object are both named
--- dragon_tower.
+-- Tags. dragon_tower gets TYPE_Unit, CAT_Building and CAT_Ranged for what it is and how it attacks,
+-- and CAT_AoE because its impact splash is the same kind ground_tower already carries the tag for
+-- in V032. dragon_flame gets TYPE_Unit and CAT_Ranged, matching what V032 gives fire_shot.
 
--- dragon_tower's hp and damage are meaningless without their siblings'. Fail before writing NULLs.
+-- dragon_tower's hp and dragon_flame's damage, speed and radius are meaningless without their
+-- siblings'. Fail before writing NULLs.
 DO
 $$
     DECLARE
@@ -70,7 +91,9 @@ $$
         SELECT expected.object_name || '.' || expected.parameter_name
         INTO missing_sibling
         FROM (VALUES ('ground_tower', 'hp'),
-                     ('electric_tower', 'damage')) AS expected(object_name, parameter_name)
+                     ('electric_tower', 'damage'),
+                     ('fire_shot', 'speed'),
+                     ('fire_shot', 'radius')) AS expected(object_name, parameter_name)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values parameter_value
                                    JOIN game_objects game_object
@@ -83,7 +106,7 @@ $$
         LIMIT 1;
 
         IF missing_sibling IS NOT NULL THEN
-            RAISE EXCEPTION '% is missing; dragon_tower derives its hp and damage from it',
+            RAISE EXCEPTION '% is missing; dragon_tower and dragon_flame derive their hp, damage, speed and radius from it',
                 missing_sibling;
         END IF;
     END
@@ -137,123 +160,113 @@ SELECT magic.id, missing.id
 FROM target_magic magic
 CROSS JOIN missing_magic_cards missing;
 
-WITH inserted_game_object AS (
-    INSERT INTO game_objects(name)
-    SELECT 'dragon_tower'
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM game_objects
-        WHERE name = 'dragon_tower'
-    )
-    RETURNING id
-),
-target_game_object AS (
-    SELECT id FROM inserted_game_object
-    UNION ALL
-    SELECT id
-    FROM game_objects
-    WHERE name = 'dragon_tower'
-),
-required_parameters(name) AS (
-    VALUES
-        ('hp'),
-        ('damage'),
-        ('attack_interval'),
-        ('beam_width'),
-        ('radius'),
-        ('duration'),
-        ('mass')
-),
-inserted_parameters AS (
-    INSERT INTO parameters(name)
-    SELECT required.name
-    FROM required_parameters required
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM parameters parameter
-        WHERE parameter.name = required.name
-    )
-    RETURNING id, name
-),
-target_parameters AS (
-    SELECT id, name FROM inserted_parameters
-    UNION ALL
-    SELECT parameter.id, parameter.name
+INSERT INTO parameters(name)
+SELECT required.name
+FROM (VALUES ('hp'),
+             ('attack_interval'),
+             ('attack_range'),
+             ('radius'),
+             ('duration'),
+             ('mass'),
+             ('damage'),
+             ('speed')) AS required(name)
+WHERE NOT EXISTS (
+    SELECT 1
     FROM parameters parameter
-    JOIN required_parameters required ON required.name = parameter.name
-),
-sibling_parameters(object_name, name, value) AS (
-    SELECT game_object.name, parameter.name, parameter_value.value
+    WHERE parameter.name = required.name
+);
+
+INSERT INTO game_objects(name)
+SELECT required.name
+FROM (VALUES ('dragon_tower'), ('dragon_flame')) AS required(name)
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM game_objects game_object
+    WHERE game_object.name = required.name
+);
+
+WITH ground_tower_parameters(name, value) AS (
+    SELECT parameter.name, parameter_value.value
     FROM parameter_values parameter_value
     JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
     JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
-    WHERE game_object.name IN ('ground_tower', 'electric_tower')
+    WHERE game_object.name = 'ground_tower'
 ),
-dragon_tower_values(parameter_name, value) AS (
-    SELECT 'hp'::TEXT,
-           (SELECT value
-            FROM sibling_parameters
-            WHERE object_name = 'ground_tower'
-              AND name = 'hp') * 1.0
+electric_tower_parameters(name, value) AS (
+    SELECT parameter.name, parameter_value.value
+    FROM parameter_values parameter_value
+    JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+    JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+    WHERE game_object.name = 'electric_tower'
+),
+fire_shot_parameters(name, value) AS (
+    SELECT parameter.name, parameter_value.value
+    FROM parameter_values parameter_value
+    JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+    JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+    WHERE game_object.name = 'fire_shot'
+),
+dragon_values(game_object_name, parameter_name, value) AS (
+    SELECT 'dragon_tower'::TEXT, 'hp'::TEXT,
+           (SELECT value FROM ground_tower_parameters WHERE name = 'hp') * 1.0
     UNION ALL
-    SELECT 'damage'::TEXT,
-           (SELECT value
-            FROM sibling_parameters
-            WHERE object_name = 'electric_tower'
-              AND name = 'damage') * 0.6
+    SELECT 'dragon_tower'::TEXT, 'attack_interval'::TEXT, 1.5::DOUBLE PRECISION
     UNION ALL
-    SELECT 'attack_interval'::TEXT, 1.5::DOUBLE PRECISION
+    SELECT 'dragon_tower'::TEXT, 'attack_range'::TEXT,
+           (SELECT value FROM fire_shot_parameters WHERE name = 'radius') * 1.0
     UNION ALL
-    SELECT 'beam_width'::TEXT, 1.0::DOUBLE PRECISION
+    SELECT 'dragon_tower'::TEXT, 'radius'::TEXT, 1.0::DOUBLE PRECISION
     UNION ALL
-    SELECT 'radius'::TEXT, 1.0::DOUBLE PRECISION
+    SELECT 'dragon_tower'::TEXT, 'duration'::TEXT, 20.0::DOUBLE PRECISION
     UNION ALL
-    SELECT 'duration'::TEXT, 20.0::DOUBLE PRECISION
+    SELECT 'dragon_tower'::TEXT, 'mass'::TEXT, 1000000.0::DOUBLE PRECISION
     UNION ALL
-    SELECT 'mass'::TEXT, 1000000.0::DOUBLE PRECISION
+    SELECT 'dragon_flame'::TEXT, 'damage'::TEXT,
+           (SELECT value FROM electric_tower_parameters WHERE name = 'damage') * 0.6
+    UNION ALL
+    SELECT 'dragon_flame'::TEXT, 'speed'::TEXT,
+           (SELECT value FROM fire_shot_parameters WHERE name = 'speed') * 1.0
+    UNION ALL
+    SELECT 'dragon_flame'::TEXT, 'radius'::TEXT,
+           (SELECT value FROM fire_shot_parameters WHERE name = 'radius') * 1.0
 )
 INSERT INTO parameter_values(game_object_id, parameter_id, value)
 SELECT game_object.id, parameter.id, seed.value
-FROM target_game_object game_object
-JOIN target_parameters parameter ON TRUE
-JOIN dragon_tower_values seed ON seed.parameter_name = parameter.name
+FROM dragon_values seed
+JOIN game_objects game_object ON game_object.name = seed.game_object_name
+JOIN parameters parameter ON parameter.name = seed.parameter_name
 ON CONFLICT (parameter_id, game_object_id)
 DO UPDATE SET value = EXCLUDED.value;
 
-WITH required_tags(name) AS (
+WITH required_tags(game_object_name, tag_name) AS (
     VALUES
-        ('TYPE_Unit'),
-        ('CAT_Building'),
-        ('CAT_Ranged'),
-        ('CAT_AoE')
+        ('dragon_tower', 'TYPE_Unit'),
+        ('dragon_tower', 'CAT_Building'),
+        ('dragon_tower', 'CAT_Ranged'),
+        ('dragon_tower', 'CAT_AoE'),
+        ('dragon_flame', 'TYPE_Unit'),
+        ('dragon_flame', 'CAT_Ranged')
 ),
 inserted_tags AS (
     INSERT INTO tags(name)
-    SELECT required.name
+    SELECT DISTINCT required.tag_name
     FROM required_tags required
     WHERE NOT EXISTS (
         SELECT 1
         FROM tags tag
-        WHERE tag.name = required.name
+        WHERE tag.name = required.tag_name
     )
     RETURNING id, name
-),
-target_tags AS (
-    SELECT id, name FROM inserted_tags
-    UNION ALL
-    SELECT tag.id, tag.name
-    FROM tags tag
-    JOIN required_tags required ON required.name = tag.name
-),
-target_game_object AS (
-    SELECT id
-    FROM game_objects
-    WHERE name = 'dragon_tower'
 )
 INSERT INTO game_object_tags(game_object_id, tag_id)
 SELECT game_object.id, tag.id
-FROM target_game_object game_object
-JOIN target_tags tag ON TRUE
+FROM required_tags required
+JOIN game_objects game_object ON game_object.name = required.game_object_name
+JOIN (
+    SELECT id, name FROM inserted_tags
+    UNION ALL
+    SELECT id, name FROM tags
+) tag ON tag.name = required.tag_name
 WHERE NOT EXISTS (
     SELECT 1
     FROM game_object_tags existing
@@ -273,8 +286,13 @@ $$
         missing_parameter  TEXT;
         tower_hp           DOUBLE PRECISION;
         ground_tower_hp    DOUBLE PRECISION;
-        tower_damage       DOUBLE PRECISION;
+        flame_damage       DOUBLE PRECISION;
         electric_damage    DOUBLE PRECISION;
+        flame_speed        DOUBLE PRECISION;
+        fire_shot_speed    DOUBLE PRECISION;
+        flame_radius       DOUBLE PRECISION;
+        fire_shot_radius   DOUBLE PRECISION;
+        indicator_range    DOUBLE PRECISION;
         tag_count          INTEGER;
         magic_tag_count    INTEGER;
     BEGIN
@@ -315,42 +333,55 @@ $$
                  JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
         WHERE game_object.name = 'dragon_tower';
 
-        IF parameter_count <> 7 THEN
-            RAISE EXCEPTION 'dragon_tower has % parameter values, expected 7', parameter_count;
+        IF parameter_count <> 6 THEN
+            RAISE EXCEPTION 'dragon_tower has % parameter values, expected 6', parameter_count;
         END IF;
 
-        SELECT expected.name
+        SELECT COUNT(*)
+        INTO parameter_count
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+        WHERE game_object.name = 'dragon_flame';
+
+        IF parameter_count <> 3 THEN
+            RAISE EXCEPTION 'dragon_flame has % parameter values, expected 3', parameter_count;
+        END IF;
+
+        SELECT expected.game_object_name || '.' || expected.parameter_name
         INTO missing_parameter
-        FROM (VALUES ('attack_interval', 1.5), ('beam_width', 1.0), ('radius', 1.0),
-                     ('duration', 20.0), ('mass', 1000000.0)) AS expected(name, value)
+        FROM (VALUES ('dragon_tower', 'attack_interval', 1.5),
+                     ('dragon_tower', 'radius', 1.0),
+                     ('dragon_tower', 'duration', 20.0),
+                     ('dragon_tower', 'mass', 1000000.0))
+                 AS expected(game_object_name, parameter_name, value)
         WHERE NOT EXISTS (SELECT 1
                           FROM parameter_values parameter_value
                                    JOIN game_objects game_object
                                         ON game_object.id = parameter_value.game_object_id
                                    JOIN parameters parameter
                                         ON parameter.id = parameter_value.parameter_id
-                          WHERE game_object.name = 'dragon_tower'
-                            AND parameter.name = expected.name
+                          WHERE game_object.name = expected.game_object_name
+                            AND parameter.name = expected.parameter_name
                             AND parameter_value.value = expected.value)
         LIMIT 1;
 
         IF missing_parameter IS NOT NULL THEN
-            RAISE EXCEPTION 'dragon_tower parameter % is missing or holds the wrong value',
-                missing_parameter;
+            RAISE EXCEPTION 'parameter % is missing or holds the wrong value', missing_parameter;
         END IF;
 
         -- GameParameterResolver.TryGetMagicParameter resolves 'range' against the cast type family
-        -- 'build' first, so a range row here would be read as the placement distance instead of
-        -- the lane's beam_width, and the indicator would draw the wrong lane.
+        -- 'build' first, so a range row here would be read as the placement distance instead of the
+        -- indicator radius, and the client would draw the wrong circle. beam_width belonged to the
+        -- old beam design and must not linger on either object.
         IF EXISTS (SELECT 1
                    FROM parameter_values parameter_value
                             JOIN game_objects game_object
                                  ON game_object.id = parameter_value.game_object_id
                             JOIN parameters parameter
                                  ON parameter.id = parameter_value.parameter_id
-                   WHERE game_object.name = 'dragon_tower'
-                     AND parameter.name = 'range') THEN
-            RAISE EXCEPTION 'dragon_tower carries a range parameter; build.range shadows it, use beam_width';
+                   WHERE game_object.name IN ('dragon_tower', 'dragon_flame')
+                     AND parameter.name IN ('range', 'beam_width')) THEN
+            RAISE EXCEPTION 'dragon_tower or dragon_flame carries a range or beam_width parameter; use attack_range or radius instead';
         END IF;
 
         SELECT parameter_value.value
@@ -376,11 +407,11 @@ $$
         END IF;
 
         SELECT parameter_value.value
-        INTO tower_damage
+        INTO flame_damage
         FROM parameter_values parameter_value
                  JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
                  JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
-        WHERE game_object.name = 'dragon_tower'
+        WHERE game_object.name = 'dragon_flame'
           AND parameter.name = 'damage';
 
         SELECT parameter_value.value
@@ -391,10 +422,70 @@ $$
         WHERE game_object.name = 'electric_tower'
           AND parameter.name = 'damage';
 
-        IF tower_damage IS NULL OR electric_damage IS NULL
-            OR ABS(tower_damage - electric_damage * 0.6) >= 1e-6 THEN
-            RAISE EXCEPTION 'dragon_tower damage is %, expected 0.6 of electric_tower damage %',
-                COALESCE(tower_damage::TEXT, '(none)'), COALESCE(electric_damage::TEXT, '(none)');
+        IF flame_damage IS NULL OR electric_damage IS NULL
+            OR ABS(flame_damage - electric_damage * 0.6) >= 1e-6 THEN
+            RAISE EXCEPTION 'dragon_flame damage is %, expected 0.6 of electric_tower damage %',
+                COALESCE(flame_damage::TEXT, '(none)'), COALESCE(electric_damage::TEXT, '(none)');
+        END IF;
+
+        SELECT parameter_value.value
+        INTO flame_speed
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'dragon_flame'
+          AND parameter.name = 'speed';
+
+        SELECT parameter_value.value
+        INTO fire_shot_speed
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'fire_shot'
+          AND parameter.name = 'speed';
+
+        IF flame_speed IS NULL OR fire_shot_speed IS NULL
+            OR ABS(flame_speed - fire_shot_speed) >= 1e-6 THEN
+            RAISE EXCEPTION 'dragon_flame speed is % but fire_shot speed is %; they were meant to match',
+                COALESCE(flame_speed::TEXT, '(none)'), COALESCE(fire_shot_speed::TEXT, '(none)');
+        END IF;
+
+        SELECT parameter_value.value
+        INTO flame_radius
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'dragon_flame'
+          AND parameter.name = 'radius';
+
+        SELECT parameter_value.value
+        INTO fire_shot_radius
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'fire_shot'
+          AND parameter.name = 'radius';
+
+        IF flame_radius IS NULL OR fire_shot_radius IS NULL
+            OR ABS(flame_radius - fire_shot_radius) >= 1e-6 THEN
+            RAISE EXCEPTION 'dragon_flame radius is % but fire_shot radius is %; they were meant to match',
+                COALESCE(flame_radius::TEXT, '(none)'), COALESCE(fire_shot_radius::TEXT, '(none)');
+        END IF;
+
+        -- The indicator circle on the tower and the projectile's own blast radius are two rows
+        -- that must hold one number.
+        SELECT parameter_value.value
+        INTO indicator_range
+        FROM parameter_values parameter_value
+                 JOIN game_objects game_object ON game_object.id = parameter_value.game_object_id
+                 JOIN parameters parameter ON parameter.id = parameter_value.parameter_id
+        WHERE game_object.name = 'dragon_tower'
+          AND parameter.name = 'attack_range';
+
+        IF indicator_range IS NULL OR flame_radius IS NULL
+            OR indicator_range <> flame_radius THEN
+            RAISE EXCEPTION 'dragon_tower attack_range is % but dragon_flame radius is %; the client indicator would not match the projectile',
+                COALESCE(indicator_range::TEXT, '(none)'), COALESCE(flame_radius::TEXT, '(none)');
         END IF;
 
         SELECT COUNT(*)
@@ -407,6 +498,18 @@ $$
 
         IF tag_count <> 4 THEN
             RAISE EXCEPTION 'dragon_tower carries % of its 4 counter tags', tag_count;
+        END IF;
+
+        SELECT COUNT(*)
+        INTO tag_count
+        FROM game_object_tags game_object_tag
+                 JOIN game_objects game_object ON game_object.id = game_object_tag.game_object_id
+                 JOIN tags tag ON tag.id = game_object_tag.tag_id
+        WHERE game_object.name = 'dragon_flame'
+          AND tag.name IN ('TYPE_Unit', 'CAT_Ranged');
+
+        IF tag_count <> 2 THEN
+            RAISE EXCEPTION 'dragon_flame carries % of its 2 counter tags', tag_count;
         END IF;
 
         SELECT COUNT(*)
