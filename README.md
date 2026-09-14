@@ -22,6 +22,9 @@ used by the game, lobby, and admin servers.
    exist.
 4. Deploy database migrations before application code that requires them.
 5. Use a forward-fix migration for rollback after a migration has been applied.
+6. Repair a migration that failed by editing that file, not with a forward fix. The failure
+   rolled it back everywhere, so nothing after it has run either. Declare the repair with a
+   `-- never-applied: <reason>` line in the file.
 
 ## Validation
 
@@ -45,7 +48,13 @@ It reports, without needing a database:
 - a published migration that was modified or deleted (rule 1). Removing a file is allowed
   in one case: when `main` has two files claiming one version. Flyway refuses to run
   anything while that clash stands, so neither file was applied anywhere and deleting one
-  of them is the only way to repair the chain.
+  of them is the only way to repair the chain. Editing a file is allowed in one case as
+  well: a migration that failed. PostgreSQL rolls the failed migration back inside its
+  transaction, including the `flyway_schema_history` row, so no database holds a checksum
+  for it and every database stops at the version below it. A forward-fix migration numbered
+  after the failure would never run, which leaves editing the failed file as the only
+  repair. The change says so in a `-- never-applied: <reason>` line added to that file, and
+  the `dev database checksums` job below still fails if the database did apply it.
 
 The workflow additionally runs `flyway validate` against the dev database, which compares
 checksums against what that database actually applied. Pending migrations are expected on

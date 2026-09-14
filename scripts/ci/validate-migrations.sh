@@ -108,6 +108,17 @@ fi
 # Migration rule 1: never edit an applied migration. Flyway stores a checksum, so an edit
 # makes `validate` fail on every database that already ran the file, and the change never
 # reaches the ones that did.
+#
+# A migration that failed is the exception. PostgreSQL runs each migration in a transaction,
+# so a failure rolls the flyway_schema_history row back with the changes: no database holds a
+# checksum for that file, every database stops at the version below it, and a forward-fix
+# migration placed after it never runs. Editing the failed file is the only repair. The edit
+# declares itself by adding a `-- never-applied: <reason>` line in the same change, so the
+# claim is written down next to the SQL and reviewed with it. A line already present on the
+# base branch does not count, which keeps the exception to the one pull request that repairs
+# the file. The `dev database checksums` job is the backstop: `flyway validate` ignores a
+# pending migration but not an applied one, so a wrong claim fails there against the record
+# of what the dev database actually ran.
 
 changed=0
 for file in "${base_migrations[@]}"; do
@@ -123,7 +134,11 @@ for file in "${base_migrations[@]}"; do
         continue
     fi
     if ! git diff --quiet "$BASE_REF" -- "$MIGRATION_DIR/$file"; then
-        fail "$file was modified - published migrations are immutable (rule 1); use a forward-fix migration"
+        if git diff "$BASE_REF" -- "$MIGRATION_DIR/$file" | grep -qiE '^\+[[:space:]]*--[[:space:]]*never-applied:'; then
+            pass "$file was modified and declares a never-applied reason - no database holds its checksum"
+            continue
+        fi
+        fail "$file was modified - published migrations are immutable (rule 1); use a forward-fix migration, or declare '-- never-applied: <reason>' if the migration failed and no database ran it"
         changed=1
     fi
 done
